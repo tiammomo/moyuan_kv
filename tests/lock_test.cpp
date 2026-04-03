@@ -1,17 +1,17 @@
 #include <gtest/gtest.h>
 #include <iostream>
 
-#include "shuaikv/utils/lock.hpp"
+#include "mokv/utils/lock.hpp"
 
 TEST(Lock, Function) {
-    shuaikv::common::RWLock lock;
+    mokv::common::RWLock lock;
     {
-        shuaikv::common::RWLock::ReadLock r_lock_1(lock);
-        shuaikv::common::RWLock::ReadLock r_lock_2(lock);
+        mokv::common::RWLock::ReadLock r_lock_1(lock);
+        mokv::common::RWLock::ReadLock r_lock_2(lock);
     }
 
     {
-        // shuaikv::common::RWLock::ReadLock r_lock_1(lock);
-        shuaikv::common::RWLock::WriteLock w_lock(lock);
+        // mokv::common::RWLock::ReadLock r_lock_1(lock);
+        mokv::common::RWLock::WriteLock w_lock(lock);
     }
 }

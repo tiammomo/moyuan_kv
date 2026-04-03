@@ -17,7 +17,7 @@ When generating git commit messages:
 
 ## Project Context
 
-Shuai-KV is a distributed KV store based on Raft + LSM Tree, written in C++17.
+MoKV is a distributed KV store based on Raft + LSM Tree, written in C++17.
 
 ### Key Technologies
 - **Storage Engine**: LSM Tree with SkipList MemTable, SST files, Manifest

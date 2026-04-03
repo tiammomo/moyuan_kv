@@ -1,4 +1,4 @@
-# Shuai-KV 技术文档
+# MoKV 技术文档
 
 > 本目录包含项目所有技术细节的学习文档，基于 CMake 构建系统。
 
@@ -8,7 +8,7 @@
 
 | 文件 | 主题 | 说明 |
 |------|------|------|
-| [00-overview.md](00-overview.md) | 项目概述 | 快速了解 Shuai-KV |
+| [00-overview.md](00-overview.md) | 项目概述 | 快速了解 MoKV |
 | [01-architecture.md](01-architecture.md) | 架构设计 | 系统分层和组件 |
 
 ### 二、存储引擎（LSM Tree）
@@ -115,7 +115,7 @@
 
 ## 模块索引
 
-### shuaikv/lsm/
+### mokv/lsm/
 
 - `skiplist.hpp` - 并发安全跳表
 - `memtable.hpp` - 内存表
@@ -123,19 +123,19 @@
 - `manifest.hpp` - 元数据管理
 - `block_cache.hpp` - 块缓存
 
-### shuaikv/raft/
+### mokv/raft/
 
 - `pod.hpp` - Raft 节点
 - `raft_log.hpp` - Raft 日志
 - `config.hpp` - 配置
 
-### shuaikv/utils/
+### mokv/utils/
 
 - `lock.hpp` - 读写锁
 - `bloom_filter.hpp` - 布隆过滤器
 - `global_random.h` - 全局随机数
 
-### shuaikv/cache/
+### mokv/cache/
 
 - `concurrent_cache.hpp` - 并发缓存
 - `cm_sketch.hpp` - Count-Min Sketch

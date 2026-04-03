@@ -1,7 +1,7 @@
-# Shuai-KV Docker 构建文件
+# MoKV Docker 构建文件
 # 使用方式:
-#   构建: docker build -t shuaikv .
-#   运行: docker run -p 9001:9001 -v data:/data shuaikv
+#   构建: docker build -t mokv .
+#   运行: docker run -p 9001:9001 -v data:/data mokv
 
 # ============ 构建阶段 ============
 FROM ubuntu:24.04 AS builder
@@ -49,8 +49,8 @@ RUN useradd -m -s /bin/bash appuser && \
 WORKDIR /app
 
 # 从构建阶段复制可执行文件
-COPY --from=builder /app/build/bin/shuaikv_server ./server
-COPY --from=builder /app/build/bin/shuaikv_client ./client
+COPY --from=builder /app/build/bin/mokv_server ./server
+COPY --from=builder /app/build/bin/mokv_client ./client
 COPY raft.cfg ./
 
 # 切换到非 root 用户

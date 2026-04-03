@@ -1,6 +1,6 @@
-# Shuai-KV
+# mokv
 
-基于 **Raft 协议**的分布式 KV 存储系统，采用 **LSM Tree** 作为存储引擎。
+面向 **大模型应用场景** 的分布式 KV 与元数据存储系统，底层采用 **Raft + LSM Tree**，上层提供 Prompt Cache、Conversation、RAG Metadata、Runtime Config 等场景化访问接口。
 
 ## 快速开始
 
@@ -9,10 +9,10 @@
 ./build.sh
 
 # 运行服务
-./build/bin/shuaikv_server
+./build/bin/mokv_server
 
 # 客户端交互
-./build/bin/shuaikv_client
+./build/bin/mokv_client
 ```
 
 ## 项目学习
@@ -38,6 +38,8 @@
 - **多级缓存**: 布隆过滤器 + Block Cache 加速查询
 - **压缩存储**: LZ4/Snappy 压缩
 - **异步 I/O**: 基于 io_uring 的高性能写入
+- **LLM 场景访问层**: Prompt Cache / Conversation / Retrieval Metadata / Runtime Config
+- **前缀扫描能力**: 支持按 keyspace 扫描，方便会话历史、配置列表和 RAG chunk 管理
 - **现代化构建**: CMake 构建系统
 
 ## 技术栈
@@ -55,7 +57,7 @@
 
 ## 大模型应用场景
 
-Shuai-KV 适用于大模型应用的多种场景，详见 [learn_docs/14-llm-applications.md](learn_docs/14-llm-applications.md)：
+mokv 适用于大模型应用的多种场景，详见 [learn_docs/14-llm-applications.md](learn_docs/14-llm-applications.md)：
 
 | 场景 | 用途 |
 |------|------|
@@ -65,21 +67,42 @@ Shuai-KV 适用于大模型应用的多种场景，详见 [learn_docs/14-llm-app
 | API 限流与计数 | 原子性计数，分布式一致性保证 |
 | 模型配置管理 | 多模型 API 动态配置，支持热更新 |
 
+## LLM 数据访问层
+
+这次重构后，LLM 场景不再直接依赖裸 `Put/Get` 拼 key，而是通过 [`mokv/llm/store.hpp`](mokv/llm/store.hpp) 中的场景化接口访问：
+
+```cpp
+mokv::DBKVStore store;
+mokv::llm::LLMStore llm_store(store);
+
+llm_store.PutPromptCache(...);
+llm_store.AppendConversationTurn(...);
+llm_store.ListConversationSessions(...);
+llm_store.PutRetrievalChunk(...);
+llm_store.ListRuntimeConfigs(...);
+```
+
 ## 架构概览
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                      系统架构                               │
+│                     mokv 架构                               │
 ├─────────────────────────────────────────────────────────────┤
 │                                                             │
 │   ┌─────────┐       ┌─────────────────────────────┐       │
-│   │ Client  │──────▶│        Raft Layer           │       │
+│   │ Client  │──────▶│      LLM Access Layer       │       │
 │   └─────────┘       │  ┌───────────────────────┐  │       │
-│                     │  │   Pod (Raft 节点)     │  │       │
+│                     │  │ Prompt/Chat/RAG API   │  │       │
 │                     │  └───────────────────────┘  │       │
 │                     └─────────────┬───────────────┘       │
 │                                   │                        │
 │                                   ▼                        │
+│   ┌─────────────────────────────────────────────────────┐ │
+│   │                  Raft Replication Layer             │ │
+│   │                 Pod / Service / Client              │ │
+│   └───────────────┬────────────────────────────────────┘ │
+│                   │                                        │
+│                   ▼                                        │
 │   ┌─────────────────────────────────────────────────────┐ │
 │   │                 LSM Tree Storage Engine             │ │
 │   │  ┌──────────┐  ┌──────────┐  ┌──────────────────┐  │ │
@@ -98,8 +121,10 @@ Shuai-KV 适用于大模型应用的多种场景，详见 [learn_docs/14-llm-app
 ## 项目结构
 
 ```
-Shuai-KV/
-├── shuaikv/                  # 主代码目录
+mokv/
+├── mokv/                  # 主代码目录
+│   ├── llm/                   # 大模型场景访问层
+│   │   └── store.hpp          # Prompt/Conversation/RAG/RuntimeConfig
 │   ├── lsm/                   # LSM 树存储引擎
 │   │   ├── skiplist.hpp       # 并发安全跳表
 │   │   ├── memtable.hpp       # 内存表
@@ -115,7 +140,8 @@ Shuai-KV/
 │   ├── utils/                 # 工具类
 │   │   ├── lock.hpp           # 读写锁
 │   │   └── bloom_filter.hpp   # 布隆过滤器
-│   ├── db.hpp                 # 核心接口
+│   ├── db.hpp                 # 核心 DB
+│   ├── kvstore.hpp            # 对外 KV 抽象，支持前缀扫描
 │   └── server.cpp / client.cpp
 ├── learn_docs/                # 学习文档目录（必读）
 ├── tests/                     # 测试文件
@@ -145,13 +171,13 @@ sudo apt install -y build-essential cmake libgrpc++-dev \
 
 ```bash
 # 前台运行
-./build/bin/shuaikv_server
+./build/bin/mokv_server
 
 # Daemon 模式
-./build/bin/shuaikv_server -d
+./build/bin/mokv_server -d
 
 # 客户端
-./build/bin/shuaikv_client
+./build/bin/mokv_client
 ```
 
 ### 测试

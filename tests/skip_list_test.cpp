@@ -4,11 +4,11 @@
 #include <string>
 #include <vector>
 
-#include "shuaikv/lsm/skiplist.hpp"
-#include "shuaikv/pool/thread_pool.hpp"
+#include "mokv/lsm/skiplist.hpp"
+#include "mokv/pool/thread_pool.hpp"
 
 TEST(SkipList, Function) {
-    shuaikv::lsm::ConcurrentSkipList skip_list;
+    mokv::lsm::ConcurrentSkipList skip_list;
     const int n = 100;
     std::cout << "finish init" << std::endl;
     for (int i = 0; i < n; i++) {
@@ -40,7 +40,7 @@ TEST(SkipList, Function) {
 }
 
 TEST(SkipList, Concurrent) {
-    shuaikv::lsm::ConcurrentSkipList skip_list;
+    mokv::lsm::ConcurrentSkipList skip_list;
     std::vector<std::function<void()>> functions;
     const int n = 200;   // 减少测试数据量
     const int m = 2;     // 减少并发数

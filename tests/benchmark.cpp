@@ -1,6 +1,6 @@
 /**
  * @file benchmark.cpp
- * @brief Shuai-KV 性能基准测试
+ * @brief MoKV 性能基准测试
  *
  * 测试项目：
  * - SkipList 读写性能
@@ -16,10 +16,10 @@
 #include <string>
 #include <vector>
 
-#include "shuaikv/lsm/skiplist.hpp"
-#include "shuaikv/lsm/block_cache.hpp"
-#include "shuaikv/raft/raft_log.hpp"
-#include "shuaikv/utils/bloom_filter.hpp"
+#include "mokv/lsm/skiplist.hpp"
+#include "mokv/lsm/block_cache.hpp"
+#include "mokv/raft/raft_log.hpp"
+#include "mokv/utils/bloom_filter.hpp"
 
 namespace {
 
@@ -91,7 +91,7 @@ BenchmarkResult RunBenchmark(const std::string& name, size_t iterations, Func fu
 }
 
 int main() {
-    std::cout << "Shuai-KV Performance Benchmark\n";
+    std::cout << "MoKV Performance Benchmark\n";
     std::cout << "================================\n\n";
 
     const size_t kTestSize = 100000;
@@ -101,7 +101,7 @@ int main() {
     std::cout << "Testing SkipList...\n";
 
     {
-        shuaikv::lsm::ConcurrentSkipList skip_list;
+        mokv::lsm::ConcurrentSkipList skip_list;
         auto pairs = GenerateRandomPairs(kTestSize, 16, kValueSize);
 
         // 插入测试
@@ -145,7 +145,7 @@ int main() {
     {
         constexpr size_t kBloomCapacity = 1000000;
 
-        shuaikv::common::BloomFilter bloom_filter;
+        mokv::common::BloomFilter bloom_filter;
         bloom_filter.Init(kBloomCapacity, 0.01);
 
         auto keys = GenerateRandomPairs(kTestSize, 16, 0);
@@ -165,11 +165,11 @@ int main() {
     std::cout << "\nTesting BlockCache...\n";
 
     {
-        shuaikv::lsm::BlockCache::Config config;
+        mokv::lsm::BlockCache::Config config;
         config.max_capacity = 64 * 1024 * 1024;  // 64MB
         config.min_block_size = 4096;
 
-        shuaikv::lsm::BlockCache cache(config);
+        mokv::lsm::BlockCache cache(config);
         auto blocks = GenerateRandomPairs(kTestSize, 16, 4096);
 
         // 写入缓存

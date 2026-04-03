@@ -1,8 +1,8 @@
-# Shuai-KV 项目概述
+# MoKV 项目概述
 
 ## 项目简介
 
-Shuai-KV 是一个基于 **Raft 协议** 的分布式 KV 存储系统，采用 **LSM Tree** 作为存储引擎。项目使用 C++17 开发，**CMake** 构建，gRPC 进行网络通信。
+MoKV 是一个基于 **Raft 协议** 的分布式 KV 存储系统，采用 **LSM Tree** 作为存储引擎。项目使用 C++17 开发，**CMake** 构建，gRPC 进行网络通信。
 
 ## 技术栈
 
@@ -19,9 +19,9 @@ Shuai-KV 是一个基于 **Raft 协议** 的分布式 KV 存储系统，采用 *
 ## 项目结构
 
 ```
-Shuai-KV/
+MoKV/
 ├── CMakeLists.txt              # CMake 根配置
-├── shuaikv/                    # 源代码目录
+├── mokv/                    # 源代码目录
 │   ├── lsm/                    # LSM 树存储引擎
 │   │   ├── skiplist.hpp        # 跳表实现
 │   │   ├── skiplist_simple.hpp # 简化版跳表

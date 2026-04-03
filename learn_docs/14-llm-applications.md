@@ -1,6 +1,6 @@
 # 14-LLM 应用场景
 
-> 本文档介绍 Shuai-KV 在大模型（LLM）应用开发中的典型场景、问题分析与解决方案。
+> 本文档介绍 MoKV 在大模型（LLM）应用开发中的典型场景、问题分析与解决方案。
 
 ## 目录
 
@@ -58,7 +58,7 @@
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│  基于 Shuai-KV 的 Prompt Cache                             │
+│  基于 MoKV 的 Prompt Cache                             │
 ├─────────────────────────────────────────────────────────────┤
 │                                                              │
 │  Key:   hash(prompt_template)                               │
@@ -67,7 +67,7 @@
 │                                                              │
 │  查询流程:                                                   │
 │  1. 计算 prompt 的 hash                                     │
-│  2. Shuai-KV Get(hash)                                      │
+│  2. MoKV Get(hash)                                      │
 │  3. 命中 → 直接返回缓存                                      │
 │  4. 未命中 → 调用 LLM → Put(hash, response)                 │
 └─────────────────────────────────────────────────────────────┘
@@ -76,7 +76,7 @@
 #### 代码实现
 
 ```cpp
-// shuaikv/db.hpp 中的 Put/Get 接口
+// mokv/db.hpp 中的 Put/Get 接口
 class DB {
 public:
     // 存储缓存的提示词模板
@@ -128,7 +128,7 @@ public:
 │         │ session_id = "user_123_session_456"              │
 │         ▼                                                  │
 │  ┌─────────────────────────────────────────────────────┐  │
-│  │                   Shuai-KV                          │  │
+│  │                   MoKV                          │  │
 │  │                                                     │  │
 │  │  Key: session_id                                    │  │
 │  │  Value: [                                          │  │
@@ -165,7 +165,7 @@ public:
 
 ```cpp
 // 当对话历史超过 Token 限制时，裁剪旧消息
-void TrimConversation(ShuaiKV* db, const std::string& session_id,
+void TrimConversation(MoKV* db, const std::string& session_id,
                       int max_tokens) {
     auto history = db->Get(session_id);
     int current_tokens = count_tokens(history);
@@ -183,7 +183,7 @@ void TrimConversation(ShuaiKV* db, const std::string& session_id,
 **3. Raft 一致性保证**
 
 ```cpp
-// shuaikv/raft/pod.hpp
+// mokv/raft/pod.hpp
 // Raft 协议保证多节点会话状态一致
 class Pod {
     void Replicate(const std::string& key, const std::string& value);
@@ -193,7 +193,7 @@ class Pod {
 
 #### 优化效果
 
-| 指标 | 单机存储 | Shuai-KV 分布式 | 提升 |
+| 指标 | 单机存储 | MoKV 分布式 | 提升 |
 |------|----------|-----------------|------|
 | 写入延迟 | 5ms | 3ms | 1.7x↑ |
 | 可用性 | 99.9% | 99.99% | 10x↑ |
@@ -224,7 +224,7 @@ RAG 检索流程:
 ├─────────────────────────────────────────────────────────────┤
 │                                                              │
 │  ┌─────────────┐     ┌─────────────────┐     ┌───────────┐ │
-│  │   文档      │────▶│   Shuai-KV      │◀────│  向量库    │ │
+│  │   文档      │────▶│   MoKV      │◀────│  向量库    │ │
 │  │  向量化     │     │  (元数据存储)    │     │ (Milvus)  │ │
 │  └─────────────┘     └────────┬────────┘     └───────────┘ │
 │                               │                            │
@@ -255,15 +255,15 @@ struct DocMetadata {
     size_t total_tokens;
 };
 
-// 存储到 Shuai-KV
-void StoreDocument(ShuaiKV* db, const std::string& doc_id,
+// 存储到 MoKV
+void StoreDocument(MoKV* db, const std::string& doc_id,
                    const std::string& content, const DocMetadata& meta) {
     db->Put("doc:" + doc_id, content);              // 原始内容
     db->Put("meta:" + doc_id, serialize(meta));     // 元数据
 }
 
 // 检索后获取原始内容
-std::pair<std::string, DocMetadata> GetDocument(ShuaiKV* db,
+std::pair<std::string, DocMetadata> GetDocument(MoKV* db,
                                                   const std::string& doc_id) {
     std::string content, meta_json;
     db->Get("doc:" + doc_id, &content);
@@ -278,7 +278,7 @@ std::pair<std::string, DocMetadata> GetDocument(ShuaiKV* db,
 // 使用布隆过滤器快速判断 doc_id 是否存在
 class DocumentIndex {
     BloomFilter filter_;  // 快速判断 doc_id 是否存在
-    ShuaiKV* db_;         // 存储实际数据
+    MoKV* db_;         // 存储实际数据
 
     bool HasDocument(const std::string& doc_id) {
         if (!filter_.MayContain(doc_id)) {
@@ -321,7 +321,7 @@ LLM API 限流需求:
 │  分布式限流架构                                              │
 ├─────────────────────────────────────────────────────────────┤
 │                                                              │
-│  Shuai-KV 存储:                                              │
+│  MoKV 存储:                                              │
 │                                                              │
 │  Key                    │ Value          │ TTL             │
 │  ───────────────────────┼────────────────┼─────────────────│
@@ -342,7 +342,7 @@ LLM API 限流需求:
 ```cpp
 // 原子计数（依赖底层 Mutex/RWLock）
 class RateLimiter {
-    ShuaiKV* db_;
+    MoKV* db_;
 
 public:
     bool TryAcquire(const std::string& key, int limit, int window_sec) {
@@ -372,7 +372,7 @@ public:
 
 #### 优化效果
 
-| 指标 | 单机 Redis | Shuai-KV 分布式 | 提升 |
+| 指标 | 单机 Redis | MoKV 分布式 | 提升 |
 |------|------------|-----------------|------|
 | 计数一致性 | 最终一致 | 强一致 | **质变** |
 | 多机房同步 | 复杂 | Raft 自动 | **简化** |
@@ -403,7 +403,7 @@ public:
 │  模型配置管理                                                │
 ├─────────────────────────────────────────────────────────────┤
 │                                                              │
-│  Shuai-KV 存储配置:                                          │
+│  MoKV 存储配置:                                          │
 │                                                              │
 │  Key                    │ Value                             │
 │  ───────────────────────┼──────────────────────────────────│
@@ -413,7 +413,7 @@ public:
 │  config:claude:endpoint │ "https://api.anthropic.com"     │
 │                                                              │
 │  配置热更新:                                                 │
-│  1. 更新 Shuai-KV                                           │
+│  1. 更新 MoKV                                           │
 │  2. Watch 机制通知所有实例                                   │
 │  3. 应用新配置（无需重启）                                    │
 │                                                              │
@@ -423,9 +423,9 @@ public:
 #### 代码实现
 
 ```cpp
-// 配置管理（基于 Shuai-KV）
+// 配置管理（基于 MoKV）
 class ModelConfig {
-    ShuaiKV* db_;
+    MoKV* db_;
     std::unordered_map<std::string, std::string> cached_config_;
 
 public:
@@ -456,7 +456,7 @@ public:
 
 ### 核心组件对照
 
-| 大模型场景需求 | Shuai-KV 组件 | 技术原理 |
+| 大模型场景需求 | MoKV 组件 | 技术原理 |
 |----------------|---------------|----------|
 | 高频写入对话历史 | **MemTable** (SkipList) | O(log n) 插入，内存高速读写 |
 | 持久化存储 | **SST Files** (mmap) | 顺序写入，OS 页缓存加速 |
@@ -470,7 +470,7 @@ public:
 
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
-│                        Shuai-KV 数据流                               │
+│                        MoKV 数据流                               │
 ├─────────────────────────────────────────────────────────────────────┤
 │                                                                      │
 │   应用层请求                                                           │
@@ -478,7 +478,7 @@ public:
 │        ▼                                                             │
 │   ┌─────────────────────────────────────────────────────────────┐   │
 │   │                    gRPC Server                               │   │
-│   │   (shuaikv/server.cpp)                                       │   │
+│   │   (mokv/server.cpp)                                       │   │
 │   └─────────────────────────────────────────────────────────────┘   │
 │        │                                                             │
 │        ▼                                                             │
@@ -514,7 +514,7 @@ public:
 
 ### 对比测试结果
 
-| 场景 | 传统方案 | Shuai-KV | 优化效果 |
+| 场景 | 传统方案 | MoKV | 优化效果 |
 |------|----------|-----------|----------|
 | **Prompt 缓存** | 每次调用 LLM | 缓存命中直接返回 | 延迟: 2.5s → 50ms (**50x**) |
 | **对话写入** | MySQL 写入 10ms | SkipList 写入 0.1ms | 写入延迟: 100x↑ |
@@ -539,8 +539,8 @@ public:
 
 ```bash
 # 克隆项目
-git clone https://github.com/tiammomo/Shuai-KV.git
-cd Shuai-KV
+git clone https://github.com/tiammomo/MoKV.git
+cd MoKV
 
 # 构建
 mkdir build && cd build
@@ -548,14 +548,14 @@ cmake .. -DCMAKE_BUILD_TYPE=Release
 cmake --build . -j$(nproc)
 
 # 运行服务
-./bin/shuaikv_server
+./bin/mokv_server
 ```
 
 ### 2. 基本使用
 
 ```bash
 # 启动客户端
-./bin/shuaikv_client
+./bin/mokv_client
 
 # 存储 Prompt 缓存
 > put prompt:hash123 "你是一个专业的产品经理..."
@@ -570,10 +570,10 @@ cmake --build . -j$(nproc)
 ### 3. 集成到应用
 
 ```cpp
-#include "shuaikv/db.hpp"
+#include "mokv/db.hpp"
 
 // 初始化
-ShuaiKV* db = new ShuaiKV("/data/shuaikv");
+MoKV* db = new MoKV("/data/mokv");
 
 // 存储对话历史
 db->Put("session:" + session_id, serialize(history));
@@ -592,7 +592,7 @@ if (db->Get("prompt:" + hash, &cached).ok()) {
 
 ## 总结
 
-### Shuai-KV 解决的核心问题
+### MoKV 解决的核心问题
 
 | 问题 | 解决方案 |
 |------|----------|
@@ -602,7 +602,7 @@ if (db->Get("prompt:" + hash, &cached).ok()) {
 | 限流控制困难 | Raft 保证多节点计数一致 |
 | 配置变更麻烦 | 热更新机制 |
 
-### 为什么选择 Shuai-KV
+### 为什么选择 MoKV
 
 1. **高性能**: LSM Tree + 多级缓存，延迟低
 2. **强一致**: Raft 协议，多机房可靠

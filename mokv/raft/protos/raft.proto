@@ -1,0 +1,99 @@
+syntax = "proto3";
+
+package mokv.raft;
+
+message Base {
+    int32 code = 1;
+    string message = 2;
+}
+
+message Address {
+    int32 id = 1;
+    string ip = 2;
+    int32 port = 3;
+}
+
+message GetReq {
+    string key = 1;
+    bool read_from_leader = 2;
+}
+
+message GetRsp {
+    Base base = 1;
+    string value = 2;
+    Address leader_addr = 3;
+}
+
+message PutReq {
+    string key = 1;
+    string value = 2;
+}
+
+message PutRsp {
+    Base base = 1;
+    Address leader_addr = 2;
+}
+
+message Config {
+    repeated Address addresses = 2;
+}
+
+message UpdateConfigRsp {
+    Base base = 1;
+}
+
+message RequestVoteReq {
+    int32 id = 1;
+    int32 term = 2;
+    int32 index = 3;
+}
+
+message RequestVoteRsp {
+    Base base = 1;
+}
+
+message Entry {
+    int32 term = 1;
+    int32 index = 2;
+    string key = 3;
+    string value = 4;
+    int32 mode = 5; // 0: put 1: delete
+    int32 commited = 6;
+}
+
+message AppendReq {
+    int64 term = 1;
+    int64 commited_index = 2;
+    int64 id = 3;
+    repeated Entry entrys = 4;
+}
+
+message AppendRsp {
+    Base base = 1;
+}
+
+message CommitReq {
+    int64 term = 1;
+    repeated Entry entrys = 2;
+}
+
+message CommitRsp {
+    Base base = 1;
+}
+
+message SendHeartBeatReq {
+    int64 time = 1;
+}
+
+message SendHeartBeatRsp {
+    Base base = 1;
+}
+
+service MoKVService {
+    rpc Put(PutReq) returns (PutRsp) {}
+    rpc Get(GetReq) returns (GetRsp) {}
+    rpc UpdateConfig(Config) returns (UpdateConfigRsp) {}
+    rpc RequestVote(RequestVoteReq) returns (RequestVoteRsp) {}
+    rpc Append(AppendReq) returns (AppendRsp) {}
+    // rpc Commit(CommitReq) returns (CommitRsp) {}
+}

@@ -9,6 +9,8 @@ bazel-genfiles/
 
 # Build artifacts
 build/
+build-*/
+Testing/
 dist/
 *.o
 *.a

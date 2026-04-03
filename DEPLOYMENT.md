@@ -1,6 +1,6 @@
-# Shuai-KV 部署指南
+# MoKV 部署指南
 
-本文档记录了在 WSL2 Ubuntu 环境下部署 Shuai-KV 的完整过程。使用 **CMake** 构建。
+本文档记录了在 WSL2 Ubuntu 环境下部署 MoKV 的完整过程。使用 **CMake** 构建。
 
 ---
 
@@ -50,8 +50,8 @@ sudo apt install -y \
 ## 克隆项目
 
 ```bash
-git clone https://github.com/tiammomo/Shuai-KV.git
-cd Shuai-KV
+git clone https://github.com/tiammomo/MoKV.git
+cd MoKV
 ```
 
 ---
@@ -85,17 +85,17 @@ cmake --build . -j$(nproc)
 
 > **注意**: 首次构建需要手动生成 gRPC 代码。如果构建失败，可先运行：
 > ```bash
-> cd build/shuaikv/raft/protos
-> /usr/bin/protoc --proto_path=/home/ubuntu/learn_projects/Shuai-KV/shuaikv/raft/protos \
+> cd build/mokv/raft/protos
+> /usr/bin/protoc --proto_path=/home/ubuntu/learn_projects/MoKV/mokv/raft/protos \
 >     --cpp_out=. --grpc_out=. --plugin=protoc-gen-grpc=/usr/bin/grpc_cpp_plugin \
 >     raft.proto
-> cd /home/ubuntu/learn_projects/Shuai-KV/build
+> cd /home/ubuntu/learn_projects/MoKV/build
 > cmake --build . -j$(nproc)
 > ```
 
 构建产物位于：
-- `build/bin/shuaikv_server` - 服务端可执行文件
-- `build/bin/shuaikv_client` - 客户端可执行文件
+- `build/bin/mokv_server` - 服务端可执行文件
+- `build/bin/mokv_client` - 客户端可执行文件
 
 ---
 
@@ -131,10 +131,10 @@ ctest --output-on-failure --verbose
 
 ```bash
 # 启动服务端
-./build/bin/shuaikv_server
+./build/bin/mokv_server
 
 # 在另一个终端启动客户端
-./build/bin/shuaikv_client
+./build/bin/mokv_client
 ```
 
 ---
@@ -162,30 +162,30 @@ quit
 ### 前台运行
 
 ```bash
-./build/bin/shuaikv_server
+./build/bin/mokv_server
 ```
 
 ### 后台运行（Daemon）
 
 ```bash
 # 使用 -d 参数启动为守护进程
-./build/bin/shuaikv_server -d
+./build/bin/mokv_server -d
 
 # 指定配置文件
-./build/bin/shuaikv_server -d -c /path/to/raft.cfg
+./build/bin/mokv_server -d -c /path/to/raft.cfg
 
 # 指定日志文件和 PID 文件
-./build/bin/shuaikv_server -d -l /var/log/shuaikv.log -P /var/run/shuaikv.pid
+./build/bin/mokv_server -d -l /var/log/mokv.log -P /var/run/mokv.pid
 
 # 查看帮助
-./build/bin/shuaikv_server --help
+./build/bin/mokv_server --help
 ```
 
 ### Daemon 模式说明
 
 - 自动创建新会话，脱离终端控制
 - 自动重定向标准输入/输出/错误到日志文件
-- 自动创建 PID 文件（默认 `shuaikv.pid`）
+- 自动创建 PID 文件（默认 `mokv.pid`）
 - 支持 SIGHUP 信号触发日志轮转
 - 支持 SIGTERM/SIGINT 信号优雅关闭
 
@@ -193,13 +193,13 @@ quit
 
 ```bash
 # 查看日志
-tail -f shuaikv.log
+tail -f mokv.log
 
 # 停止服务
-kill $(cat shuaikv.pid)
+kill $(cat mokv.pid)
 
 # 检查进程状态
-ps aux | grep shuaikv
+ps aux | grep mokv
 ```
 
 ---
@@ -271,7 +271,7 @@ uname -r
 ### 项目构建（CMake）
 
 ```bash
-cd /home/ubuntu/learn_projects/Shuai-KV
+cd /home/ubuntu/learn_projects/MoKV
 
 # 安装依赖
 sudo apt update
@@ -280,15 +280,15 @@ sudo apt install -y cmake build-essential libgrpc++-dev libprotobuf-dev protobuf
 # 配置和构建
 mkdir -p build && cd build
 cmake ..
-cmake --build . --target shuaikv_server shuaikv_client -j$(nproc)
+cmake --build . --target mokv_server mokv_client -j$(nproc)
 ```
 
 ### 构建产物
 
 ```bash
 ls -la build/bin/
-# -rwxr-xr-x 1 ubuntu ubuntu 52934816 shuaikv_client
-# -rwxr-xr-x 1 ubuntu ubuntu 55085632 shuaikv_server
+# -rwxr-xr-x 1 ubuntu ubuntu 52934816 mokv_client
+# -rwxr-xr-x 1 ubuntu ubuntu 55085632 mokv_server
 ```
 
 ### 运行测试
@@ -302,7 +302,7 @@ cat > raft.cfg << 'EOF'
 EOF
 
 # 启动服务
-./build/bin/shuaikv_server &
+./build/bin/mokv_server &
 # server listening on 9001
 
 # 服务启动后会进行 Raft 选举
@@ -319,7 +319,7 @@ EOF
 
 ### 历史修复（已完成）
 
-1. **bloom_filter.hpp**: 修复 include 路径 (`SHUAI-KV` → `shuaikv`)
+1. **bloom_filter.hpp**: 修复 include 路径 (`SHUAI-KV` → `mokv`)
 2. **pod.hpp**: 添加缺失的成员变量 (`election_cv_`, `election_thread_`, `election_thread_mutex_`)
 3. **block_cache.hpp**: 修复 C++17 默认成员初始化器问题
 4. **sst.hpp**: 添加命名空间前缀、`operator bool()` 方法，修复 `PrefetchDataBlock` 方法
@@ -335,8 +335,8 @@ EOF
 **根本原因**: `GlobalRand()` 函数使用 `std::chrono::high_resolution_clock::now()` 导致不稳定行为。
 
 **修复方案**:
-- [global_random.cpp](shuaikv/utils/global_random.cpp): 简化为仅使用原子递增计数器
-- [skiplist.hpp](shuaikv/lsm/skiplist.hpp): 修复层级扩展逻辑，确保路径上所有节点的 nexts 向量正确扩展
+- [global_random.cpp](mokv/utils/global_random.cpp): 简化为仅使用原子递增计数器
+- [skiplist.hpp](mokv/lsm/skiplist.hpp): 修复层级扩展逻辑，确保路径上所有节点的 nexts 向量正确扩展
 
 #### 测试验证结果
 
@@ -356,17 +356,17 @@ EOF
 
 **问题描述**: CMake 静态库链接顺序导致符号解析问题。
 
-**修复方案**: 在 tests/CMakeLists.txt 中调整链接顺序，确保 `shuaikv` 库放在最后：
+**修复方案**: 在 tests/CMakeLists.txt 中调整链接顺序，确保 `mokv` 库放在最后：
 
 ```cmake
 target_link_libraries(${test_name}
     PRIVATE
         GTest::gtest_main
-        shuaikv_grpc
+        mokv_grpc
         gRPC::grpc++
         grpc
         protobuf::libprotobuf
-        shuaikv  # 放在最后
+        mokv  # 放在最后
 )
 ```
 
@@ -437,17 +437,17 @@ ip addr show eth0
 ## 目录结构
 
 ```
-Shuai-KV/
+MoKV/
 ├── CMakeLists.txt           # CMake 根配置
 │
 ├── build/                    # CMake 构建目录
 │   ├── bin/
-│   │   ├── shuaikv_server
-│   │   ├── shuaikv_client
+│   │   ├── mokv_server
+│   │   ├── mokv_client
 │   │   └── benchmark
 │   └── lib/
 │
-├── shuaikv/                  # 源代码目录
+├── mokv/                  # 源代码目录
 │   ├── CMakeLists.txt        # 子模块 CMake 配置
 │   ├── config.hpp            # 统一配置类
 │   ├── kvstore.hpp           # KVStore 接口

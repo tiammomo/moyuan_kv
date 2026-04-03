@@ -286,7 +286,7 @@ public:
 ## RPC 接口定义
 
 ```protobuf
-service EasyKvService {
+service MoKVService {
     // KV 操作
     rpc Put(PutReq) returns (PutRsp) {}
     rpc Get(GetReq) returns (GetRsp) {}

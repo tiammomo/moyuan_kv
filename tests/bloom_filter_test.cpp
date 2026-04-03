@@ -1,9 +1,9 @@
 #include <gtest/gtest.h>
 #include <iostream>
 #include <string>
-#include "shuaikv/utils/bloom_filter.hpp"
+#include "mokv/utils/bloom_filter.hpp"
 TEST(BloomFilteTest, Function) {
-    shuaikv::common::BloomFilter bloom_filter;
+    mokv::common::BloomFilter bloom_filter;
     const int n = 100000;
     bloom_filter.Init(n, 0.01);
     std::cout << bloom_filter.length() << " length " << std::endl;
@@ -26,7 +26,7 @@ TEST(BloomFilteTest, Function) {
     std::cout << "binary size " << bloom_filter.binary_size() << std::endl;
     char* data = new char[bloom_filter.binary_size()];
     bloom_filter.Save(data);
-    shuaikv::common::BloomFilter new_filter;
+    mokv::common::BloomFilter new_filter;
     std::cout << "load size: " << new_filter.Load(data) << std::endl;
     std::cout << "new binary size " << new_filter.binary_size() << std::endl;
     for (int i = 0; i < n; i++) {
