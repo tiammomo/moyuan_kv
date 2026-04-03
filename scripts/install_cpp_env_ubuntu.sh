@@ -28,6 +28,7 @@ apt-get install -y \
   libprotobuf-dev \
   protobuf-compiler \
   protobuf-compiler-grpc \
+  liblz4-dev \
   liburing-dev \
   libboost-all-dev \
   googletest
