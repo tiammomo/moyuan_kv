@@ -12,8 +12,9 @@
 #pragma once
 
 #include <cstdint>
-#include <string>
 #include <filesystem>
+#include <string>
+#include <vector>
 
 namespace mokv {
 
@@ -21,6 +22,12 @@ namespace mokv {
  * @brief mokv 服务器配置
  */
 struct MokvConfig {
+    struct RaftPeer {
+        int32_t id = 0;
+        std::string host = "127.0.0.1";
+        uint16_t port = 0;
+    };
+
     // ============ 服务器配置 ============
     uint16_t port = 9001;                    ///< 服务端口
     std::string host = "0.0.0.0";            ///< 监听地址
@@ -36,6 +43,7 @@ struct MokvConfig {
     int32_t election_timeout_ms = 5000;      ///< 选举超时时间（毫秒）
     int32_t heartbeat_interval_ms = 1000;    ///< 心跳间隔（毫秒）
     int32_t snapshot_interval_s = 3600;      ///< 快照间隔（秒）
+    std::vector<RaftPeer> peers;             ///< Raft 节点列表
 
     // ============ Compaction 配置 ============
     bool enable_compaction = true;           ///< 是否启用自动压缩
@@ -54,7 +62,7 @@ struct MokvConfig {
      * @return true 配置有效，false 配置无效
      */
     bool Validate() const {
-        if (port == 0 || port > 65535) {
+        if (port == 0) {
             return false;
         }
         if (max_memory_mb == 0) {
@@ -62,6 +70,14 @@ struct MokvConfig {
         }
         if (election_timeout_ms < 1000) {
             return false;
+        }
+        if (heartbeat_interval_ms <= 0) {
+            return false;
+        }
+        for (const auto& peer : peers) {
+            if (peer.id <= 0 || peer.host.empty() || peer.port == 0) {
+                return false;
+            }
         }
         return true;
     }
@@ -111,8 +127,11 @@ struct MokvConfig {
      * - MOKV_PORT: 服务端口
      * - MOKV_DATA_DIR: 数据目录
      * - MOKV_MAX_MEMORY: 最大内存（MB）
+     * - MOKV_PEERS: 以 `id,host,port;...` 格式指定 Raft 节点
      */
     void LoadFromEnv();
+
+    const RaftPeer* FindPeer(int32_t id) const;
 };
 
 /**
@@ -122,7 +141,9 @@ struct MokvConfig {
 using MoKVConfig = MokvConfig;
 
 inline MokvConfig DefaultConfig() {
-    return MokvConfig();
+    MokvConfig config;
+    config.peers.push_back({config.node_id, config.host, config.port});
+    return config;
 }
 
 }  // namespace mokv

@@ -3,6 +3,8 @@
 #include <array>
 #include <atomic>
 #include <cstddef>
+#include <condition_variable>
+#include <filesystem>
 #include <mutex>
 #include <string>
 
@@ -27,12 +29,19 @@ class SnapShot {
 
 class RaftLog {
 public:
-    RaftLog(mokv::DB* db) {
+    RaftLog(mokv::DB* db, std::filesystem::path data_dir = ".")
+        : log_path_((data_dir.empty() ? std::filesystem::path(".") : std::move(data_dir)) / log_name_) {
         db_ = db;
-        auto fd = open(log_name_, O_RDWR);
+        std::error_code ec;
+        std::filesystem::create_directories(log_path_.parent_path(), ec);
+        if (ec) {
+            throw std::runtime_error("failed to create raft log directory: " + log_path_.parent_path().string());
+        }
+
+        auto fd = open(log_path_.c_str(), O_RDWR);
         if (fd != -1) {
             struct stat stat_buf;
-            stat(log_name_, &stat_buf);
+            stat(log_path_.c_str(), &stat_buf);
             auto file_size = 8;
             auto data = (char*)mmap(NULL, file_size, PROT_READ, MAP_SHARED, fd, 0);
             Load(data);
@@ -42,32 +51,34 @@ public:
         }
         sync_thread = std::thread([this]() {
             while (true) {
-                sleep(3);
-                // usleep(10000);
                 std::unique_lock<std::mutex> lock(lock_);
-                if (last_append_ < commited_) {
-                    lock.unlock();
-                    ++last_append_;
-                    auto& entry = queue_.At(last_append_ - start_index_ - 1);
-                    db_->Put(entry.key(), entry.value());
-                } else {
-                    lock.unlock();
-                    if (stop_) {
-                        break;
-                    }
+                sync_cv_.wait(lock, [this]() {
+                    return stop_ || last_append_ < commited_;
+                });
+                if (stop_ && last_append_ >= commited_) {
+                    break;
                 }
+                Entry entry = queue_.At(last_append_ - start_index_);
+                ++last_append_;
+                lock.unlock();
+                db_->Put(entry.key(), entry.value());
+                sync_cv_.notify_all();
             }
         });
     }
     ~RaftLog() {
-        stop_ = true;
+        {
+            std::unique_lock<std::mutex> guard(lock_);
+            stop_ = true;
+        }
+        sync_cv_.notify_all();
         if (sync_thread.joinable()) {
             sync_thread.join();
         }
 
-        auto fd = open(log_name_, O_RDWR);
+        auto fd = open(log_path_.c_str(), O_RDWR);
         if (fd == -1) {
-            fd = open(log_name_, O_RDWR | O_CREAT, 0700);
+            fd = open(log_path_.c_str(), O_RDWR | O_CREAT, 0700);
         }
         auto file_size = 8;
         if (ftruncate(fd, static_cast<off_t>(file_size)) == -1) {
@@ -113,6 +124,7 @@ public:
             idx = index_;
             if (entry.commited() > commited_) {
                 commited_ = entry.commited();
+                sync_cv_.notify_all();
             }
             return true;
         } else {
@@ -129,6 +141,7 @@ public:
             ++index_;
             if (entry.commited() > commited_) {
                 commited_ = entry.commited();
+                sync_cv_.notify_all();
             }
             return true;
         } else {
@@ -155,7 +168,18 @@ public:
 
     void UpdateCommit(size_t leader_commit) {
         std::unique_lock<std::mutex> lock(lock_);
+        const size_t previous_commit = commited_;
         commited_ = std::max(commited_, std::min(index_.load(), leader_commit));
+        if (commited_ > previous_commit) {
+            sync_cv_.notify_all();
+        }
+    }
+
+    void WaitUntilApplied(size_t index) {
+        std::unique_lock<std::mutex> lock(lock_);
+        sync_cv_.wait(lock, [this, index]() {
+            return stop_ || last_append_ >= index;
+        });
     }
 private:
     void Load(char* s) {
@@ -166,8 +190,10 @@ private:
     }
 private:   
     constexpr static const char* log_name_ = "raft_log_meta";
+    std::filesystem::path log_path_;
     mokv::DB* db_;
     std::mutex lock_;
+    std::condition_variable sync_cv_;
     std::thread sync_thread;
     std::atomic_bool stop_{false};
     std::atomic_size_t index_;
@@ -176,6 +202,6 @@ private:
     size_t last_append_;
     size_t start_index_;
 };
-
+ 
 }
 }

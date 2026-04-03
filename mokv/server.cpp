@@ -1,4 +1,5 @@
 #include "mokv/raft/service.hpp"
+#include "mokv/config.hpp"
 #include "mokv/raft/config.hpp"
 #include "mokv/resource_manager.hpp"
 
@@ -6,6 +7,7 @@
 #include <csignal>
 #include <cstring>
 #include <fstream>
+#include <filesystem>
 #include <getopt.h>
 #include <grpcpp/grpcpp.h>
 #include <grpcpp/health_check_service_interface.h>
@@ -20,6 +22,19 @@
 #include <sys/wait.h>
 
 namespace {
+
+std::filesystem::path ResolveDataDir(const std::filesystem::path& configured,
+                                     const std::filesystem::path& config_file,
+                                     const std::filesystem::path& launch_dir) {
+    const auto base_dir = config_file.has_parent_path() ? config_file.parent_path() : launch_dir;
+    if (configured.empty()) {
+        return std::filesystem::absolute(base_dir / "data");
+    }
+    if (configured.is_absolute()) {
+        return configured;
+    }
+    return std::filesystem::absolute(base_dir / configured);
+}
 
 std::unique_ptr<grpc::Server> g_server;
 std::atomic_bool g_shutdown_flag{false};
@@ -119,8 +134,12 @@ bool IsProcessRunning(pid_t pid) {
 
 }  // namespace
 
-void RunServer() {
-    mokv::ResourceManager::instance().InitDb();
+bool RunServer(const mokv::MokvConfig& config) {
+    if (!mokv::ResourceManager::instance().LoadConfig(config)) {
+        std::cerr << "failed to initialize raft config" << std::endl;
+        return false;
+    }
+    mokv::ResourceManager::instance().InitDb(config);
     mokv::ResourceManager::instance().InitPod();
 
     auto local_addr = mokv::ResourceManager::instance().config_manager().local_address();
@@ -145,15 +164,17 @@ void RunServer() {
     if (g_server) {
         g_server->Shutdown();
     }
+    return true;
 }
 
 int main(int argc, char* argv[]) {
     // 命令行参数
     bool daemonize = false;
     // uint16_t port = 0;  // 预留：端口覆盖功能
-    std::string config_file = "raft.cfg";
-    std::string log_file = "mokv.log";
-    std::string pid_file = "mokv.pid";
+    const auto current_dir = std::filesystem::current_path();
+    std::filesystem::path config_file = current_dir / mokv::raft::ConfigManager::DefaultPath();
+    std::filesystem::path log_file = current_dir / "mokv.log";
+    std::filesystem::path pid_file = current_dir / "mokv.pid";
 
     // 解析命令行参数
     static struct option long_options[] = {
@@ -174,13 +195,13 @@ int main(int argc, char* argv[]) {
                 daemonize = true;
                 break;
             case 'c':
-                config_file = optarg;
+                config_file = std::filesystem::absolute(optarg);
                 break;
             case 'l':
-                log_file = optarg;
+                log_file = std::filesystem::absolute(optarg);
                 break;
             case 'P':
-                pid_file = optarg;
+                pid_file = std::filesystem::absolute(optarg);
                 break;
             case 'h':
                 PrintUsage(argv[0]);
@@ -212,14 +233,28 @@ int main(int argc, char* argv[]) {
     std::signal(SIGTERM, SignalHandler);
     std::signal(SIGHUP, SignalHandler);  // 日志轮转等
 
+    mokv::MokvConfig config = mokv::DefaultConfig();
+    if (!config.LoadFromFile(config_file)) {
+        std::cerr << "Failed to load config file: " << config_file << std::endl;
+        return 1;
+    }
+    config.LoadFromEnv();
+    config.data_dir = ResolveDataDir(config.data_dir, config_file, current_dir);
+    if (!config.Validate()) {
+        std::cerr << "Invalid config: " << config_file << std::endl;
+        return 1;
+    }
+
     if (daemonize) {
-        if (!Daemonize(log_file, pid_file)) {
+        if (!Daemonize(log_file.string(), pid_file.string())) {
             std::cerr << "Failed to daemonize" << std::endl;
             return 1;
         }
     }
 
-    RunServer();
+    if (!RunServer(config)) {
+        return 1;
+    }
 
     while (!g_shutdown_flag) {
         std::this_thread::sleep_for(std::chrono::milliseconds(100));

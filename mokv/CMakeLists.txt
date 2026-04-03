@@ -30,6 +30,7 @@ target_include_directories(mokv_grpc
 
 # 源文件列表
 set(MOKV_SOURCES
+    config.cpp
     kvstore.cpp
     utils/global_random.cpp
     lsm/async_sst_writer.cpp

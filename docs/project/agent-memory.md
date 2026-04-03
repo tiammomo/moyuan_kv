@@ -16,8 +16,9 @@
 
 这些信息在后续讨论和设计里应视为“代码当前事实”：
 
-- `mokv_server` 当前仍然主要从当前工作目录读取 `./raft.cfg`
-- `MokvConfig` 主要接在库内包装器上，还不是完整的 server 进程配置入口
+- `MokvConfig` 已经接到 `mokv_server`、`mokv_client` 和 `raft::ConfigManager`
+- 旧 `raft.cfg` 与新的 `key=value` 配置文件当前都可用
+- daemon 模式会在 `chdir("/")` 前完成配置加载
 - `ConversationStore` 当前支持的是按 turn 数裁剪，不是按 token 数裁剪
 - `RetrievalStore` 当前存储检索元数据和 `embedding_ref`，不是向量本体
 - `UpdateConfig` RPC 当前还没有完成
@@ -28,7 +29,7 @@
 
 - 默认压缩开启
 - LZ4 已切换到标准 `liblz4` frame API
-- `ctest --test-dir build --output-on-failure` 为 `11/11` 通过
+- `ctest --test-dir build --output-on-failure` 为 `13/13` 通过
 
 如果后续代码变更导致这些事实失效，应优先更新 `README.md`、`docs/README.md` 和对应专题文档。
 

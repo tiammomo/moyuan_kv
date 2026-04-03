@@ -98,11 +98,12 @@ llm/applications.md
 
 - 仓库主目录名已经统一为 `mokv`
 - LZ4 已切到 `liblz4` 标准 frame
-- `ctest --test-dir build --output-on-failure` 为 `11/11` 通过
+- `MokvConfig` 已接通 server、client 和 `ConfigManager`
+- `ctest --test-dir build --output-on-failure` 为 `13/13` 通过
 
 ## 当前需要注意的边界
 
-- `MokvConfig` 目前主要服务于库内包装器，例如 `DBKVStore`
-- `mokv_server` 当前实际仍然从当前工作目录读取 `./raft.cfg`
+- `mokv_server` / `mokv_client` 共享 `MokvConfig -> ConfigManager` 配置链路
+- 旧 `raft.cfg` 仍然兼容，但新的 `key=value` 配置文件已经可用
 - `ConversationStore` 当前支持的是“按 turn 数裁剪”，不是按 token 数裁剪
 - `RetrievalStore` 存储的是检索元数据和 `embedding_ref`，不是向量本体

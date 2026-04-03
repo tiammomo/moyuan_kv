@@ -86,3 +86,38 @@ TEST_F(DBTest, ReadAfterRestart) {
         VerifyDB(db, n);
     }
 }
+
+TEST_F(DBTest, PersistsArtifactsInsideConfiguredDataDir) {
+    namespace fs = std::filesystem;
+
+    auto config = TestDBConfig();
+    config.memtable_max_size = 8 * 1024;
+    config.data_dir = fs::current_path() / "db-data";
+
+    std::error_code ec;
+    fs::remove_all(config.data_dir, ec);
+    ec.clear();
+
+    {
+        mokv::DB db(config);
+        PopulateDB(db, 256);
+    }
+
+    EXPECT_TRUE(fs::exists(config.data_dir / "manifest"));
+
+    bool has_sst = false;
+    for (const auto& entry : fs::directory_iterator(config.data_dir, ec)) {
+        if (ec) {
+            break;
+        }
+        if (entry.is_regular_file(ec) && entry.path().extension() == ".sst") {
+            has_sst = true;
+            break;
+        }
+        ec.clear();
+    }
+    EXPECT_TRUE(has_sst);
+    EXPECT_FALSE(fs::exists(fs::current_path() / "manifest"));
+
+    fs::remove_all(config.data_dir, ec);
+}

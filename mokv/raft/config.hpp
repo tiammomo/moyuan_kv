@@ -1,8 +1,10 @@
 #pragma once
 #include <cstdint>
-#include <iostream>
+#include <filesystem>
 #include <fstream>
+#include <iostream>
 
+#include "mokv/config.hpp"
 #include "mokv/raft/protos/raft.grpc.pb.h"
 
 namespace mokv {
@@ -22,40 +24,52 @@ public:
     }
 
     bool Load() {
-        std::ifstream fin(name_);
-        if (!fin.is_open()) {
+        return Load(DefaultPath());
+    }
+
+    bool Load(const std::filesystem::path& path) {
+        MokvConfig config = DefaultConfig();
+        if (!config.LoadFromFile(path)) {
             return false;
         }
-        size_t size;
-        fin >> size;
-        int32_t id;
-        std::string ip;
-        int32_t port;
-        for (size_t i = 0; i < size; i++) {
-            fin >> id;
-            fin >> ip;
-            fin >> port;
-            auto address_ptr = config_.add_addresses();
-            address_ptr->set_id(id);
-            address_ptr->set_ip(ip);
-            address_ptr->set_port(port);
+        return LoadFromMokvConfig(config);
+    }
+
+    bool LoadFromMokvConfig(const MokvConfig& config) {
+        config_.Clear();
+        local_address_.Clear();
+        ready_ = false;
+
+        for (const auto& peer : config.peers) {
+            auto* address = config_.add_addresses();
+            address->set_id(peer.id);
+            address->set_ip(peer.host);
+            address->set_port(peer.port);
+            if (peer.id == config.node_id) {
+                local_address_ = *address;
+            }
         }
 
-        fin >> id;
-        fin >> ip;
-        fin >> port;
+        if (local_address_.ip().empty() || local_address_.port() == 0) {
+            local_address_.set_id(config.node_id);
+            local_address_.set_ip(config.host);
+            local_address_.set_port(config.port);
+            auto* address = config_.add_addresses();
+            address->set_id(config.node_id);
+            address->set_ip(config.host);
+            address->set_port(config.port);
+        }
 
-        local_address_.set_id(id);
-        local_address_.set_ip(ip);
-        local_address_.set_port(port);
-        fin.close();
-        ready_ = true;
-        return true;
+        ready_ = local_address_.port() > 0;
+        return ready_;
+    }
+
+    static constexpr const char* DefaultPath() {
+        return "raft.cfg";
     }
 
 
 private:
-    constexpr static const char* name_ = "raft.cfg";
     bool ready_ = false;
     mokv::raft::Config config_;
     mokv::raft::Address local_address_;

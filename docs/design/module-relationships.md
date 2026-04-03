@@ -139,4 +139,4 @@ LLMStore -> DBKVStore -> DB -> LSM
 MokvServiceImpl -> Pod -> RaftLog -> DB
 ```
 
-虽然可以运行，但还有配置接入和工程化能力待补。
+虽然已经和 `MokvConfig` 配置链路打通，但前缀扫描和 LLM 访问层仍主要建立在嵌入式 `DBKVStore` 路径上。

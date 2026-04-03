@@ -1,9 +1,11 @@
 #pragma once
 #include <atomic>
 #include <condition_variable>
+#include <filesystem>
 #include <functional>
 #include <memory>
 #include <mutex>
+#include <stdexcept>
 #include <string>
 #include <string_view>
 #include <thread>
@@ -35,6 +37,9 @@ inline bool IsTombstone(std::string_view value) {
  * @brief DB 配置
  */
 struct DBConfig {
+    /// @brief 数据目录
+    std::filesystem::path data_dir = ".";
+
     /// @brief 压缩配置
     lsm::CompressionConfig compression;
 
@@ -51,9 +56,17 @@ struct DBConfig {
 class DB {
 public:
     DB(const DBConfig& config = DBConfig()) : config_(config) {
+        if (config_.data_dir.empty()) {
+            config_.data_dir = ".";
+        }
+        std::error_code ec;
+        std::filesystem::create_directories(config_.data_dir, ec);
+        if (ec) {
+            throw std::runtime_error("failed to create DB data directory: " + config_.data_dir.string());
+        }
         memtable_ = std::make_shared<lsm::MemTable>();
         to_sst_thread_ = std::thread(&DB::ToSSTLoop, this);
-        manifest_queue_.emplace_back(std::make_shared<lsm::Manifest>());
+        manifest_queue_.emplace_back(std::make_shared<lsm::Manifest>(config_.data_dir));
         sst_id_ = manifest_queue_.back()->max_sst_id();
 
         // 初始化 Block Cache
@@ -154,6 +167,10 @@ public:
         return Get(key, value);
     }
 
+    const std::filesystem::path& data_dir() const {
+        return config_.data_dir;
+    }
+
     /// @brief 获取压缩率统计
     double GetCompressionRatio() const {
         common::RWLock::ReadLock r_lock(manifest_lock_);
@@ -195,9 +212,9 @@ private:
         const size_t next_sst_id = ++sst_id_;
         std::shared_ptr<lsm::SST> sst;
         if (config_.compression.enable) {
-            sst = std::make_shared<lsm::SST>(*inmemtable, next_sst_id, config_.compression);
+            sst = std::make_shared<lsm::SST>(*inmemtable, next_sst_id, config_.compression, config_.data_dir);
         } else {
-            sst = std::make_shared<lsm::SST>(*inmemtable, next_sst_id);
+            sst = std::make_shared<lsm::SST>(*inmemtable, next_sst_id, config_.data_dir);
         }
 
         // 设置 Block Cache

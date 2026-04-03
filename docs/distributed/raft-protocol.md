@@ -24,11 +24,11 @@
 
 `mokv/raft/config.hpp` 中的 `ConfigManager` 当前负责：
 
-- 读取 `raft.cfg`
+- 接收 `MokvConfig`
 - 生成完整节点列表 `Config`
 - 记录本地地址 `local_address`
 
-它当前固定从当前工作目录读取 `./raft.cfg`。
+它既可以通过默认路径读取旧 `raft.cfg`，也可以通过 `Load(path)` 加载新的 `key=value` 配置文件。
 
 ### `MokvServiceImpl`
 
@@ -112,6 +112,23 @@ DBClient.Put
 
 这也是客户端命令 `sget` 的来源。
 
+## 当前配置链路
+
+服务端和客户端现在共享同一套配置模型：
+
+```text
+配置文件 / 环境变量
+  -> MokvConfig
+  -> ConfigManager
+  -> Pod / DBClient
+```
+
+其中：
+
+- `mokv_server -c <file>` 会把文件加载进 `MokvConfig`
+- `mokv_client -c <file>` 会使用同一份节点列表初始化 RPC client
+- daemon 模式会在 `chdir("/")` 之前完成配置加载
+
 ## 当前实现里已经存在的超时与线程
 
 需要注意的是，实际时间控制分散在多处实现里：
@@ -126,11 +143,10 @@ DBClient.Put
 
 以下内容在当前代码里是明确存在的边界：
 
-- `mokv_server -c <file>` 还没有真正影响 `ConfigManager`
 - `UpdateConfig` RPC 尚未实现
 - snapshot / membership change 还没有打通
 - `raft_log_meta` 不是完整持久化日志
-- daemon 模式和相对配置路径之间还有冲突
+- 当前服务端测试只覆盖最小单节点和 redirect 语义，还没有多进程多节点集成回归
 
 ## 如何看待这条路径
 

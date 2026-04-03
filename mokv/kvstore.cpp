@@ -38,6 +38,7 @@ std::vector<std::string> DeserializeKeys(std::string_view payload) {
 
 DBConfig BuildDBConfig(const MokvConfig& config) {
     DBConfig db_config;
+    db_config.data_dir = config.data_dir;
     db_config.memtable_max_size = config.GetMemTableSizeBytes();
     db_config.enable_block_cache = config.block_cache_size_mb > 0;
     db_config.block_cache.max_capacity = config.GetBlockCacheSizeBytes();

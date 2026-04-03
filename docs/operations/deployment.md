@@ -31,6 +31,7 @@ sudo bash scripts/install_cpp_env_ubuntu.sh
 - `protobuf-compiler-grpc`
 - `liburing-dev`
 - `libboost-all-dev`
+- `liblz4-dev`
 - `googletest`
 
 ### 手动安装
@@ -96,7 +97,9 @@ cmake --build build --target mokv_server mokv_client -j"$(nproc)"
 
 ## 单节点运行
 
-仓库默认 `raft.cfg` 是单节点配置：
+仓库兼容两种单节点配置格式。
+
+### 方式一：旧 `raft.cfg`
 
 ```text
 1
@@ -104,11 +107,11 @@ cmake --build build --target mokv_server mokv_client -j"$(nproc)"
 1 127.0.0.1 9001
 ```
 
-在仓库根目录启动：
+用兼容格式启动：
 
 ```bash
-./build/bin/mokv_server
-./build/bin/mokv_client
+./build/bin/mokv_server -c ./raft.cfg
+./build/bin/mokv_client -c ./raft.cfg
 ```
 
 客户端当前支持：
@@ -118,9 +121,40 @@ cmake --build build --target mokv_server mokv_client -j"$(nproc)"
 - `sget <key>`
 - `optget <key> <index>`
 
-## `raft.cfg` 格式
+### 方式二：新的 `mokv.conf`
 
-当前 `raft::ConfigManager` 读取的格式是：
+```text
+host=127.0.0.1
+port=9001
+data_dir=./data
+max_memory_mb=4096
+block_cache_size_mb=256
+memtable_size_mb=64
+node_id=1
+election_timeout_ms=5000
+heartbeat_interval_ms=1000
+snapshot_interval_s=3600
+enable_compaction=true
+level0_compaction_threshold=4
+background_threads=4
+max_background_jobs=8
+verbose_logging=false
+log_level=INFO
+peer=1,127.0.0.1,9001
+```
+
+用新格式启动：
+
+```bash
+./build/bin/mokv_server -c ./mokv.conf
+./build/bin/mokv_client -c ./mokv.conf
+```
+
+## 配置格式
+
+### 旧 `raft.cfg` 格式
+
+`MokvConfig::LoadFromFile(...)` 兼容历史 `raft.cfg`，格式是：
 
 1. 第一行：节点总数
 2. 接下来 `N` 行：集群内所有节点的 `id ip port`
@@ -158,18 +192,55 @@ cmake --build build --target mokv_server mokv_client -j"$(nproc)"
 3 192.168.1.103 9001
 ```
 
+### 新 `key=value` 格式
+
+新的配置文件是逐行 `key=value`，并允许重复 `peer=`：
+
+```text
+host=192.168.1.101
+port=9001
+data_dir=/var/lib/mokv/node1
+node_id=1
+peer=1,192.168.1.101,9001
+peer=2,192.168.1.102,9001
+peer=3,192.168.1.103,9001
+```
+
+### 环境变量覆盖
+
+当前支持的环境变量包括：
+
+- `MOKV_HOST`
+- `MOKV_PORT`
+- `MOKV_DATA_DIR`
+- `MOKV_MAX_MEMORY`
+- `MOKV_BLOCK_CACHE_MB`
+- `MOKV_MEMTABLE_MB`
+- `MOKV_NODE_ID`
+- `MOKV_ELECTION_TIMEOUT_MS`
+- `MOKV_HEARTBEAT_INTERVAL_MS`
+- `MOKV_SNAPSHOT_INTERVAL_S`
+- `MOKV_ENABLE_COMPACTION`
+- `MOKV_VERBOSE_LOGGING`
+- `MOKV_LOG_LEVEL`
+- `MOKV_PEERS`
+
+其中 `MOKV_PEERS` 格式是 `id,host,port;id,host,port;...`。
+
 ## 运行限制
 
 这部分必须按当前代码来理解：
 
-- `mokv_server -c <file>` 虽然已经解析参数，但当前实现没有把它传给 `raft::ConfigManager`
-- `raft::ConfigManager` 仍固定读取当前工作目录下的 `./raft.cfg`
-- daemon 模式会 `chdir("/")`，因此如果不额外处理配置文件路径，后台模式下很可能读不到正确的 `raft.cfg`
+- `mokv_server` / `mokv_client` 现在共享 `MokvConfig -> ConfigManager` 配置链路
+- `-c, --config <file>` 当前已经真实生效
+- daemon 模式仍会 `chdir("/")`，但配置文件会在 daemonize 前读取，不再受相对路径影响
+- `data_dir` 当前会承载 `manifest`、`*.sst` 和 `raft_log_meta`
+- `UpdateConfig` RPC 仍未实现，集群成员变更和快照恢复也还不完整
 
 结论：
 
-- 当前推荐前台运行
-- 如果一定要跑 daemon，需要先补代码，把配置路径真正接通；现阶段不建议把 daemon 当成现成生产部署方案
+- 当前推荐前台运行，方便观察日志和调试 Raft 行为
+- daemon 模式现在可用，但仍不建议把它当成现成生产部署方案
 
 ## 日志和 PID
 
@@ -182,7 +253,7 @@ cmake --build build --target mokv_server mokv_client -j"$(nproc)"
 - `-h, --help`
 - `-v, --version`
 
-但请注意，只有 `-d`、`-l`、`-P` 在当前实现里真正影响运行行为；`-c` 还没有接到配置加载路径。
+其中 `-c`、`-d`、`-l`、`-P` 当前都已经真正影响运行行为。
 
 ## 测试验证
 
@@ -192,8 +263,8 @@ ctest --test-dir build --output-on-failure
 
 截至 `2026-04-03`，当前分支本地结果为：
 
-- `11/11` 测试通过
-- 包含压缩互通测试和 LLM store 测试
+- `13/13` 测试通过
+- 包含压缩互通测试、RPC 服务语义测试和配置链路测试
 
 ## 适合放在哪里
 
@@ -204,7 +275,5 @@ ctest --test-dir build --output-on-failure
 
 如果目标是生产化多节点部署，建议先继续补以下内容：
 
-- 真实生效的服务端配置文件路径
-- daemon 模式与配置加载的一致性
 - 更完整的运维日志与健康检查
 - 更强的 Raft 恢复 / 快照 / 配置变更能力

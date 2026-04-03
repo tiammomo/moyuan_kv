@@ -70,13 +70,12 @@ class Pod;
 
 class Follower {
 public:
-    Follower(const Address& addr, RaftLog* log, int32_t ld_id): leader_id_(ld_id) {
+    Follower(const Address& addr, RaftLog* log, int32_t ld_id)
+        : nextindex_(0), main_log_(log), stop_(false), leader_id_(ld_id), pod_(nullptr) {
         addr_ = addr;
         rpc_client_.SetIp(addr.ip());
         rpc_client_.SetPort(addr.port());
         rpc_client_.Connect();
-        main_log_ = log;
-        stop_ = false;
     }
     
     void SetOtherFollower(std::vector<std::shared_ptr<Follower> >& all_follower) {
@@ -143,7 +142,7 @@ public:
                             ++sum;
                         }
                     }
-                    if (sum >= (sum + static_cast<int>(other_followers_.size()) + 1) / 2) {
+                    if (sum > (static_cast<int>(other_followers_.size()) + 2) / 2) {
                         main_log_->UpdateCommit(nextindex_);
                     }
                 }
@@ -205,10 +204,14 @@ private:
 
 class Pod {
 public:
-    Pod(int32_t id, const Config& config, std::shared_ptr<mokv::DB> db): id_(id), raft_log_(db.get()) {
+    Pod(int32_t id, const Config& config, std::shared_ptr<mokv::DB> db)
+        : id_(id), raft_log_(db.get(), db ? db->data_dir() : std::filesystem::path(".")) {
         db_ = db;
         followers_.reserve(config.addresses_size());
         for (auto& addr : config.addresses()) {
+            if (addr.id() == id_) {
+                continue;
+            }
             followers_.emplace_back(std::make_shared<Follower>(addr, &raft_log_, id));
         }
         for (auto& follower : followers_) {
@@ -265,16 +268,17 @@ public:
         voted_ = true;
         return true;
     }
+
+    void SetStateForTesting(PodStatus status, int32_t leader_id) {
+        std::unique_lock<std::mutex> lock(election_mutex_);
+        status_ = status;
+        leader_id_ = leader_id;
+    }
     
     void Put(const PutReq& req, PutRsp& rsp) {
         if (GetPodStatusWithLock() != PodStatus::Leader) {
             raft::Base* base = new raft::Base;
-            raft::Address* addr = nullptr;
-            for (auto& follower : followers_) {
-                if (follower->id() == leader_id_) {
-                    addr = new raft::Address(follower->addr());
-                }
-            }
+            raft::Address* addr = FindLeaderAddress();
             if (!addr) {
                 base->set_code(-1);
             } else {
@@ -289,18 +293,20 @@ public:
             base->set_code(-1);
             rsp.set_allocated_base(base);
         } else {
-
+            auto base = new Base;
+            base->set_code(0);
+            rsp.set_allocated_base(base);
         }
     }
 
     void Get(const GetReq* req, GetRsp* rsp) {
-        if (req->read_from_leader() && status_ != PodStatus::Leader) {
+        if (req->read_from_leader() && GetPodStatusWithLock() != PodStatus::Leader) {
             raft::Base* base = new raft::Base;
-            raft::Address* addr;
-            for (auto& follower : followers_) {
-                if (follower->id() == leader_id_) {
-                    addr = new raft::Address(follower->addr());
-                }
+            raft::Address* addr = FindLeaderAddress();
+            if (!addr) {
+                base->set_code(-1);
+                rsp->set_allocated_base(base);
+                return;
             }
             base->set_code(-2); // redirect code
             rsp->set_allocated_base(base);
@@ -309,10 +315,13 @@ public:
         }
         std::string value;
         bool res = db_->Get(req->key(), value);
+        auto base = new raft::Base();
         if (!res) {
-            auto base = new raft::Base();
             base->set_code(1); // empty
+            rsp->set_allocated_base(base);
         } else {
+            base->set_code(0);
+            rsp->set_allocated_base(base);
             rsp->set_value(value);
         }
     }
@@ -363,7 +372,9 @@ private:
                     ++sum;
                 }
             }
-            if (sum > (1 + followers_.size() + 1) / 2) {
+            if (sum > (followers_.size() + 1) / 2) {
+                raft_log_.UpdateCommit(now_idx);
+                raft_log_.WaitUntilApplied(now_idx);
                 break;
             }
         }
@@ -415,7 +426,7 @@ private:
             if (status_ != PodStatus::Candidate) {
                 return false;
             }
-            if (ticket_num > (1 + followers_.size()) / 2) {
+            if (ticket_num > (followers_.size() + 1) / 2) {
                 status_ = PodStatus::Leader;
                 for (auto& follower : followers_) {
                     follower->SetNextindex(raft_log_.commited());
@@ -507,6 +518,15 @@ private:
     static constexpr int heart_beat_time_ms() { return 1000; }  // 心跳间隔: 1秒
     static constexpr int timeout_time_ms() { return 5000; }      // 选举超时: 5秒
 
+    raft::Address* FindLeaderAddress() {
+        for (auto& follower : followers_) {
+            if (follower->id() == leader_id_) {
+                return new raft::Address(follower->addr());
+            }
+        }
+        return nullptr;
+    }
+
     std::mutex election_mutex_;
     std::mutex election_thread_mutex_;
     std::condition_variable election_cv_;
@@ -516,7 +536,7 @@ private:
         std::chrono::system_clock::now().time_since_epoch()
     ).count())};
     int32_t id_;
-    int32_t leader_id_;
+    int32_t leader_id_ = -1;
     int32_t voted_ = false;
     PodStatus status_;
     std::atomic_int64_t term_{0};

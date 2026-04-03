@@ -32,6 +32,7 @@
 #include <algorithm>
 #include <atomic>
 #include <cstddef>
+#include <filesystem>
 #include <memory>
 #include <mutex>
 #include <queue>
@@ -100,7 +101,7 @@ public:
          * @param max_sst_id 输出参数，更新最大 SST ID
          * @return 读取的字节数
          */
-        size_t Load(char* s, size_t& max_sst_id) {
+        size_t Load(char* s, size_t& max_sst_id, const std::filesystem::path& data_dir) {
             size_t index = 0;
             size_t sst_id;
             while (true) {
@@ -108,6 +109,7 @@ public:
                 index += sizeof(size_t);
                 if (sst_id != static_cast<size_t>(-1)) {
                     auto sst_ptr = std::make_shared<SST>();
+                    sst_ptr->SetDataDir(data_dir);
                     sst_ptr->SetId(static_cast<int>(sst_id));
                     sst_ptr->Load();
                     ssts_.emplace_back(sst_ptr);
@@ -213,8 +215,18 @@ public:
      *
      * 如果 manifest 文件存在，则加载；否则创建新的。
      */
-    Manifest() {
-        auto fd = open("manifest", O_RDWR);
+    explicit Manifest(std::filesystem::path data_dir = ".") : data_dir_(std::move(data_dir)) {
+        if (data_dir_.empty()) {
+            data_dir_ = ".";
+        }
+        std::error_code ec;
+        std::filesystem::create_directories(data_dir_, ec);
+        if (ec) {
+            throw std::runtime_error("failed to create manifest directory: " + data_dir_.string());
+        }
+
+        const auto manifest_path = ManifestPath();
+        auto fd = open(manifest_path.c_str(), O_RDWR);
         if (fd != -1) {
             struct stat stat_buf;
             fstat(fd, &stat_buf);
@@ -232,7 +244,7 @@ public:
             levels_.reserve(level_count);
             for (size_t i = 0; i < level_count; ++i) {
                 Level level(i);
-                index += level.Load(data + index, max_sst_id_);
+                index += level.Load(data + index, max_sst_id_, data_dir_);
                 levels_.emplace_back(std::move(level));
             }
             close(fd);
@@ -248,9 +260,10 @@ public:
      * @return 写入的字节数
      */
     size_t Save() {
-        auto fd = open("manifest", O_RDWR);
+        const auto manifest_path = ManifestPath();
+        auto fd = open(manifest_path.c_str(), O_RDWR);
         if (fd == -1) {
-            fd = open("manifest", O_RDWR | O_CREAT, 0700);
+            fd = open(manifest_path.c_str(), O_RDWR | O_CREAT, 0700);
         }
 
         auto file_size = binary_size();
@@ -299,7 +312,10 @@ public:
      * 用于 Copy-on-Write：创建新版本时复制旧版本
      */
     Manifest(const Manifest& manifest)
-        : version_(manifest.version_ + 1), levels_(manifest.levels_) {}
+        : version_(manifest.version_ + 1),
+          levels_(manifest.levels_),
+          max_sst_id_(manifest.max_sst_id_),
+          data_dir_(manifest.data_dir_) {}
 
     /**
      * @brief 查找键
@@ -459,9 +475,9 @@ public:
         // 生成新的 SST 文件
         std::shared_ptr<SST> new_sst_ptr;
         if (compression.enable) {
-            new_sst_ptr = std::make_shared<SST>(entries, id, compression);
+            new_sst_ptr = std::make_shared<SST>(entries, id, compression, data_dir_);
         } else {
-            new_sst_ptr = std::make_shared<SST>(entries, id);
+            new_sst_ptr = std::make_shared<SST>(entries, id, data_dir_);
         }
         if (static_cast<size_t>(id) > max_sst_id_) {
             max_sst_id_ = id;
@@ -514,6 +530,10 @@ public:
     }
 
 private:
+    std::filesystem::path ManifestPath() const {
+        return data_dir_ / "manifest";
+    }
+
     /// @brief 层数上限
     static constexpr size_t max_level_size() { return 5; }
 
@@ -537,6 +557,7 @@ private:
     std::vector<Level> levels_;             ///< 各层 SST 文件列表
     mokv::common::RWLock memtable_rw_lock_;  ///< 读写锁
     size_t max_sst_id_{0};                  ///< 最大 SST 文件 ID
+    std::filesystem::path data_dir_ = ".";  ///< 数据目录
 };
 
 }  // namespace lsm

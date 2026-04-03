@@ -1,6 +1,7 @@
 #pragma once
 #include <memory>
 
+#include "mokv/config.hpp"
 #include "mokv/db.hpp"
 #include "mokv/raft/config.hpp"
 #include "mokv/raft/pod.hpp"
@@ -16,7 +17,9 @@ public:
 
     ResourceManager() {
         config_manager_ = std::make_unique<raft::ConfigManager>();
-        config_manager_->Load();
+        if (!config_manager_->Load()) {
+            config_manager_->LoadFromMokvConfig(DefaultConfig());
+        }
     }
 
     DB& db() {
@@ -28,6 +31,19 @@ public:
         db_ = std::make_shared<DB>();
     }
 
+    void InitDb(const DBConfig& config) {
+        db_ = std::make_shared<DB>(config);
+    }
+
+    void InitDb(const MokvConfig& config) {
+        DBConfig db_config;
+        db_config.data_dir = config.data_dir;
+        db_config.memtable_max_size = config.GetMemTableSizeBytes();
+        db_config.enable_block_cache = config.block_cache_size_mb > 0;
+        db_config.block_cache.max_capacity = config.GetBlockCacheSizeBytes();
+        db_ = std::make_shared<DB>(db_config);
+    }
+
     raft::Pod& pod() {
         return *pod_;
     }
@@ -35,6 +51,34 @@ public:
     // 一定要先InitDb
     void InitPod() {
         pod_ = std::make_unique<raft::Pod>(config_manager_->local_address().id(), config_manager_->config(), db_);
+    }
+
+    bool LoadConfig(const MokvConfig& config) {
+        if (!config_manager_) {
+            config_manager_ = std::make_unique<raft::ConfigManager>();
+        }
+        return config_manager_->LoadFromMokvConfig(config);
+    }
+
+    bool LoadConfig(const std::filesystem::path& path) {
+        if (!config_manager_) {
+            config_manager_ = std::make_unique<raft::ConfigManager>();
+        }
+        return config_manager_->Load(path);
+    }
+
+    void ConfigureForTesting(const raft::Config& config, int32_t local_id) {
+        MokvConfig mokv_config = DefaultConfig();
+        mokv_config.node_id = local_id;
+        mokv_config.peers.clear();
+        for (const auto& address : config.addresses()) {
+            mokv_config.peers.push_back({address.id(), address.ip(), static_cast<uint16_t>(address.port())});
+            if (address.id() == local_id) {
+                mokv_config.host = address.ip();
+                mokv_config.port = static_cast<uint16_t>(address.port());
+            }
+        }
+        LoadConfig(mokv_config);
     }
 
     raft::ConfigManager& config_manager() {

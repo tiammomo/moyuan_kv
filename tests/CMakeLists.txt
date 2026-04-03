@@ -44,6 +44,8 @@ set(TEST_SOURCES
     cm_sketch_test.cpp
     compression_test.cpp
     llm_store_test.cpp
+    rpc_service_test.cpp
+    config_test.cpp
 )
 
 # 创建测试可执行文件

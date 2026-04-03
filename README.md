@@ -12,7 +12,8 @@
 - `DBKVStore` 支持前缀列举 `ListKeysByPrefix` / `ListEntriesByPrefix`
 - SST 压缩读路径可用，默认压缩重新开启
 - LZ4 已切换到标准 `liblz4` frame 格式，和外部 `liblz4` / `lz4` CLI 互通
-- `ctest` 当前基线为 `11/11` 通过
+- `MokvConfig` 已接通 `mokv_server`、`mokv_client` 和 `raft::ConfigManager`
+- `ctest` 当前基线为 `13/13` 通过
 
 ## 快速开始
 
@@ -41,15 +42,22 @@ cmake --build build --target mokv_server mokv_client -j"$(nproc)"
 ctest --test-dir build --output-on-failure
 ```
 
-截至 `2026-04-03`，本地验证结果为 `11/11` 通过。
+截至 `2026-04-03`，本地验证结果为 `13/13` 通过。
 
 ### 4. 启动服务和客户端
 
-当前服务端默认从当前工作目录读取 `./raft.cfg`，所以请在仓库根目录启动：
+服务端和客户端默认都会尝试读取当前工作目录下的 `./raft.cfg`。也可以显式指定配置文件：
 
 ```bash
-./build/bin/mokv_server
-./build/bin/mokv_client
+./build/bin/mokv_server -c ./raft.cfg
+./build/bin/mokv_client -c ./raft.cfg
+```
+
+如果你更希望使用新的 `key=value` 配置格式，也可以：
+
+```bash
+./build/bin/mokv_server -c ./mokv.conf
+./build/bin/mokv_client -c ./mokv.conf
 ```
 
 客户端当前支持的命令是：
@@ -93,13 +101,13 @@ Conversation 当前支持的是“按 turn 数裁剪”，对应接口是 `TrimC
 
 - gRPC 服务实现位于 `mokv/raft/service.hpp`
 - server 入口位于 `mokv/server.cpp`
-- `DBClient` 会按 `raft.cfg` 中的地址列表初始化 RPC client
+- `DBClient` 会按 `MokvConfig` 中的节点列表初始化 RPC client
 - `sget` 会尝试走 leader 读
 
 这部分代码目前属于“可运行、可调试”的状态，但仍有几个需要注意的限制：
 
-- `mokv_server -c <file>` 参数已经解析，但当前 `ConfigManager` 仍固定读取 `./raft.cfg`
-- daemon 模式会 `chdir("/")`，而配置加载仍依赖相对路径，因此这一路径还不适合作为现成生产部署方案
+- `mokv_server` / `mokv_client` 当前共享同一套 `MokvConfig -> ConfigManager` 配置链路
+- daemon 模式虽然仍会 `chdir("/")`，但配置文件已在 daemonize 前加载，不再受相对路径影响
 - `UpdateConfig` RPC 目前直接返回 `CANCELLED`
 
 ## 嵌入式用法
@@ -145,15 +153,43 @@ int main() {
 
 ## 配置入口
 
-这里有两个配置入口，需要区分：
+当前配置模型已经统一成一条链路：
 
-- 嵌入式 / 库内调用：
-  - `mokv::DBConfig`
-  - `mokv::MokvConfig`
-- 当前服务端进程：
-  - 实际读取的是仓库根目录下的 `raft.cfg`
+- `mokv::MokvConfig`：
+  - 用于进程级配置
+  - 可从文件或环境变量加载
+- `mokv::raft::ConfigManager`：
+  - 把 `MokvConfig` 转成 Raft 地址列表
+- `mokv::DBConfig`：
+  - 由 `ResourceManager::InitDb(const MokvConfig&)` 映射出存储相关参数和 `data_dir`
 
-也就是说，`MokvConfig` 目前主要用于 `DBKVStore` 这类库内接口；`mokv_server` 还没有把它接成完整的进程配置入口。
+`MokvConfig::LoadFromFile(...)` 目前兼容两种文件格式：
+
+- 旧的 `raft.cfg`：
+
+```text
+1
+1 127.0.0.1 9001
+1 127.0.0.1 9001
+```
+
+- 新的 `mokv.conf`：
+
+```text
+host=127.0.0.1
+port=9001
+data_dir=./data
+node_id=1
+peer=1,127.0.0.1,9001
+```
+
+环境变量覆盖当前支持 `MOKV_HOST`、`MOKV_PORT`、`MOKV_DATA_DIR`、`MOKV_PEERS` 等。
+
+当前 `data_dir` 会承载：
+
+- `manifest`
+- `*.sst`
+- `raft_log_meta`
 
 ## 目录结构
 
@@ -221,3 +257,5 @@ int main() {
 - `cm_sketch_test`
 - `compression_test`
 - `llm_store_test`
+- `rpc_service_test`
+- `config_test`

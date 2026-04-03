@@ -35,6 +35,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
+#include <filesystem>
 #include <iostream>
 #include <memory>
 #include <stdexcept>
@@ -62,6 +63,10 @@ inline void EnsureFileSizeOrThrow(int fd, size_t file_size, const std::string& f
     if (ftruncate(fd, static_cast<off_t>(file_size)) == -1) {
         throw std::runtime_error("failed to resize file: " + file_name);
     }
+}
+
+inline std::filesystem::path NormalizeDataDir(std::filesystem::path data_dir) {
+    return data_dir.empty() ? std::filesystem::path(".") : std::move(data_dir);
 }
 
 inline size_t ReadSize(const char* ptr) {
@@ -862,7 +867,7 @@ public:
         compression_config_.type = common::CompressionType::kNone;
     }
 
-    SST(std::vector<EntryView> entries, int id) {
+    SST(std::vector<EntryView> entries, int id, std::filesystem::path data_dir = ".") {
         compression_config_.enable = false;
         compression_config_.type = common::CompressionType::kNone;
 
@@ -881,8 +886,8 @@ public:
 
         file_size_ = index_block_size + data_block_size;
         
-        id_ = id;
-        name_ = std::to_string(id_) + ".sst";
+        SetDataDir(std::move(data_dir));
+        SetId(id);
         // std::cout << "open file " << std::endl;
         fd_ = open(name_.c_str(), O_RDWR);
         if (fd_ == -1) {
@@ -945,7 +950,7 @@ public:
         ready_ = true;
     }
 
-    SST(MemeTable& memtable, size_t id) {
+    SST(MemeTable& memtable, size_t id, std::filesystem::path data_dir = ".") {
         compression_config_.enable = false;
         compression_config_.type = common::CompressionType::kNone;
         // std::cout << "make sst " << id << std::endl;
@@ -965,8 +970,8 @@ public:
 
         file_size_ = index_block_size + data_block_size;
         
-        id_ = id;
-        name_ = std::to_string(id_) + ".sst";
+        SetDataDir(std::move(data_dir));
+        SetId(static_cast<int>(id));
         // std::cout << "open file " << std::endl;
         fd_ = open(name_.c_str(), O_RDWR);
         if (fd_ == -1) {
@@ -1032,7 +1037,10 @@ public:
      * @param id SST 文件 ID
      * @param config 压缩配置
      */
-    SST(std::vector<EntryView> entries, int id, const CompressionConfig& config)
+    SST(std::vector<EntryView> entries,
+        int id,
+        const CompressionConfig& config,
+        std::filesystem::path data_dir = ".")
         : compression_config_(config) {
         CompressedBlockBuilder builder(config);
 
@@ -1056,8 +1064,8 @@ public:
             compression_config_.type = common::CompressionType::kNone;
         }
 
-        id_ = id;
-        name_ = std::to_string(id_) + ".sst";
+        SetDataDir(std::move(data_dir));
+        SetId(id);
 
         fd_ = open(name_.c_str(), O_RDWR);
         if (fd_ == -1) {
@@ -1097,7 +1105,10 @@ public:
      * @param id SST 文件 ID
      * @param config 压缩配置
      */
-    SST(MemeTable& memtable, size_t id, const CompressionConfig& config)
+    SST(MemeTable& memtable,
+        size_t id,
+        const CompressionConfig& config,
+        std::filesystem::path data_dir = ".")
         : compression_config_(config) {
         CompressedBlockBuilder builder(config);
 
@@ -1119,8 +1130,8 @@ public:
             compression_config_.type = common::CompressionType::kNone;
         }
 
-        id_ = id;
-        name_ = std::to_string(id_) + ".sst";
+        SetDataDir(std::move(data_dir));
+        SetId(static_cast<int>(id));
 
         fd_ = open(name_.c_str(), O_RDWR);
         if (fd_ == -1) {
@@ -1185,9 +1196,21 @@ public:
         return file_size_;
     }
 
+    void SetDataDir(std::filesystem::path data_dir) {
+        data_dir_ = detail::NormalizeDataDir(std::move(data_dir));
+        std::error_code ec;
+        std::filesystem::create_directories(data_dir_, ec);
+        if (ec) {
+            throw std::runtime_error("failed to create SST directory: " + data_dir_.string());
+        }
+        if (id_ != 0) {
+            name_ = (data_dir_ / (std::to_string(id_) + ".sst")).string();
+        }
+    }
+
     void SetId(int id) {
         id_ = id;
-        name_ = std::to_string(id_) + ".sst";
+        name_ = (detail::NormalizeDataDir(data_dir_) / (std::to_string(id_) + ".sst")).string();
     }
     bool Load() {
         fd_ = open(name_.c_str(), O_RDWR);
@@ -1344,6 +1367,7 @@ public:
 private:
     bool ready_ = false;
     int64_t id_ = 0;
+    std::filesystem::path data_dir_ = ".";
     std::string name_;
     char* data_;
     int fd_ = -1;

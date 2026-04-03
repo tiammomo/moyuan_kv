@@ -13,7 +13,7 @@ ctest --test-dir build --output-on-failure
 
 结果为：
 
-- `11/11` 通过
+- `13/13` 通过
 - `0` 失败
 
 ## CTest 中的测试目标
@@ -31,6 +31,8 @@ ctest --test-dir build --output-on-failure
 | `cm_sketch_test` | Count-Min Sketch |
 | `compression_test` | 压缩默认开启、SST 压缩读写、LZ4 互通 |
 | `llm_store_test` | Prompt Cache、Conversation、Retrieval、Runtime Config |
+| `rpc_service_test` | Put/Get 成功码、not-found、leader redirect |
+| `config_test` | 旧 `raft.cfg` 兼容加载、新配置 round-trip、`ConfigManager` 接线 |
 
 ## 运行方式
 
@@ -48,6 +50,8 @@ ctest --test-dir build --output-on-failure
 ./build/bin/db_test
 ./build/bin/compression_test
 ./build/bin/llm_store_test
+./build/bin/rpc_service_test
+./build/bin/config_test
 ```
 
 ### 使用过滤器运行 GoogleTest
@@ -55,6 +59,7 @@ ctest --test-dir build --output-on-failure
 ```bash
 ./build/bin/compression_test --gtest_filter='CompressionInterop.*'
 ./build/bin/llm_store_test --gtest_filter='LLMStoreTest.ConversationAppendTrimAndList'
+./build/bin/rpc_service_test --gtest_filter='RpcServiceTest.GetMissingKeyReturnsNotFoundCode'
 ```
 
 ## 测试隔离方式
@@ -101,6 +106,22 @@ ctest --test-dir build --output-on-failure
 - Retrieval chunk metadata round-trip
 - Runtime Config round-trip
 
+### `rpc_service_test`
+
+当前覆盖四个最小服务端语义：
+
+- `Put` 成功返回显式 `base.code = 0`
+- `Get` 成功返回显式 `base.code = 0`
+- miss 返回 `base.code = 1`
+- follower 上的写入和 leader 读请求会返回 redirect
+
+### `config_test`
+
+当前覆盖两类配置行为：
+
+- 旧 `raft.cfg` 能被 `MokvConfig::LoadFromFile(...)` 正确吸收
+- 新 `key=value` 配置能 round-trip，并喂给 `raft::ConfigManager`
+
 ## 当前没有纳入 CTest 的内容
 
 - `tests/benchmark.cpp`
@@ -123,6 +144,13 @@ ctest --test-dir build --output-on-failure
 - `mokv/kvstore.*`
   - `llm_store_test`
   - `db_test`
+- `mokv/config.*`
+  - `config_test`
+- `mokv/raft/service.hpp`
+  - `rpc_service_test`
+- `mokv/server.cpp`
+  - `config_test`
+  - `rpc_service_test`
 
 ## 结论
 

@@ -31,9 +31,9 @@
 
 需要按当前代码理解，而不是按历史设计稿理解：
 
-- `mokv_server` 的进程级配置入口目前主要还是 `raft.cfg`
-- `MokvConfig` 没有被完整接入 server 启动路径
-- daemon 选项存在，但和配置加载路径还没有完全打通
+- `MokvConfig` 已经接通 `mokv_server`、`mokv_client` 和 `raft::ConfigManager`
+- 进程启动既兼容旧 `raft.cfg`，也支持新的 `key=value` 配置文件
+- daemon 选项仍存在，但配置文件会在 daemonize 前加载
 - `UpdateConfig` RPC 还没有完成
 
 ## 代码目录
@@ -87,4 +87,4 @@ mokv/
 
 ## 测试基线
 
-截至 `2026-04-03`，本地 `ctest` 结果为 `11/11` 通过。
+截至 `2026-04-03`，本地 `ctest` 结果为 `13/13` 通过。

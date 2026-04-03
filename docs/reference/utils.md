@@ -100,11 +100,11 @@ namespace cpputil::pbds
 
 初始化顺序大致是：
 
-1. 构造时加载 `raft.cfg`
+1. 构造时尝试加载默认配置路径，失败时回退到 `DefaultConfig()`
 2. `InitDb()`
 3. `InitPod()`
 
-因此，server 路径下对配置文件路径的依赖，也集中在这里开始生效。
+因此，server 路径下的配置收口点仍然在这里，但实际文件解析已经统一走 `MokvConfig`。
 
 ## 当前需要知道的事实
 

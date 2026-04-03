@@ -1,23 +1,43 @@
 #pragma once
 
+#include <filesystem>
 #include <iostream>
 #include <memory>
+#include <stdexcept>
 #include <string_view>
 #include <vector>
-#include "mokv/resource_manager.hpp"
+
+#include "mokv/config.hpp"
+#include "mokv/raft/client.hpp"
+#include "mokv/raft/config.hpp"
+
 namespace mokv {
 
 class DBClient {
 public:
     DBClient() {
-        for (auto addr : ResourceManager::instance().config_manager().config().addresses()) {
-            auto client = std::make_shared<Client>();
-            client->SetIp(addr.ip());
-            client->SetPort(addr.port());
-            client->Connect();
-            all_pod_.emplace_back(client);
+        MokvConfig config = DefaultConfig();
+        const std::filesystem::path default_path = raft::ConfigManager::DefaultPath();
+        if (std::filesystem::exists(default_path)) {
+            if (!config.LoadFromFile(default_path)) {
+                throw std::runtime_error("failed to load config file: " + default_path.string());
+            }
         }
+        Init(config);
     }
+
+    explicit DBClient(const MokvConfig& config) {
+        Init(config);
+    }
+
+    explicit DBClient(const std::filesystem::path& config_path) {
+        MokvConfig config = DefaultConfig();
+        if (!config.LoadFromFile(config_path)) {
+            throw std::runtime_error("failed to load config file: " + config_path.string());
+        }
+        Init(config);
+    }
+
     bool Get(std::string_view key, std::string& value) {
         raft::GetReq req;
         raft::GetRsp rsp;
@@ -39,7 +59,23 @@ public:
         }
         return false;
     }
+    
+private:
+    void Init(const MokvConfig& config) {
+        if (!config_manager_.LoadFromMokvConfig(config)) {
+            throw std::runtime_error("invalid mokv config for DBClient");
+        }
+        all_pod_.clear();
+        for (auto addr : config_manager_.config().addresses()) {
+            auto client = std::make_shared<Client>();
+            client->SetIp(addr.ip());
+            client->SetPort(addr.port());
+            client->Connect();
+            all_pod_.emplace_back(client);
+        }
+    }
 
+public:
     bool Get(std::string_view key, std::string& value, size_t index) {
         {
             raft::GetReq req;
@@ -166,6 +202,7 @@ public:
         return false;
     }
 private:
+    raft::ConfigManager config_manager_;
     std::vector<std::shared_ptr<Client> > all_pod_; 
 };
 
