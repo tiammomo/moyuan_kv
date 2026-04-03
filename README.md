@@ -1,209 +1,223 @@
 # mokv
 
-面向 **大模型应用场景** 的分布式 KV 与元数据存储系统，底层采用 **Raft + LSM Tree**，上层提供 Prompt Cache、Conversation、RAG Metadata、Runtime Config 等场景化访问接口。
+`mokv` 是一个面向大模型工作负载的 KV / 元数据存储项目，核心由三层组成：
+
+- `DB`：单进程嵌入式 KV，底层是 `MemTable -> SST -> Manifest` 的 LSM 路径。
+- `Raft + gRPC`：提供一个可运行的分布式服务端和最小客户端。
+- `llm::LLMStore`：在 KV 之上封装 Prompt Cache、Conversation、Retrieval Metadata、Runtime Config 四类场景接口。
+
+当前代码已经完成以下几件事：
+
+- 目录和构建目标统一为 `mokv`
+- `DBKVStore` 支持前缀列举 `ListKeysByPrefix` / `ListEntriesByPrefix`
+- SST 压缩读路径可用，默认压缩重新开启
+- LZ4 已切换到标准 `liblz4` frame 格式，和外部 `liblz4` / `lz4` CLI 互通
+- `ctest` 当前基线为 `11/11` 通过
 
 ## 快速开始
 
+### 1. 安装依赖
+
 ```bash
-# 构建项目
+sudo bash scripts/install_cpp_env_ubuntu.sh
+```
+
+### 2. 构建
+
+```bash
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON
+cmake --build build --target mokv_server mokv_client -j"$(nproc)"
+```
+
+也可以直接用仓库里的便捷脚本：
+
+```bash
 ./build.sh
+```
 
-# 运行服务
+### 3. 运行测试
+
+```bash
+ctest --test-dir build --output-on-failure
+```
+
+截至 `2026-04-03`，本地验证结果为 `11/11` 通过。
+
+### 4. 启动服务和客户端
+
+当前服务端默认从当前工作目录读取 `./raft.cfg`，所以请在仓库根目录启动：
+
+```bash
 ./build/bin/mokv_server
-
-# 客户端交互
 ./build/bin/mokv_client
 ```
 
-## 项目学习
+客户端当前支持的命令是：
 
-**详细学习文档请查看 [learn_docs/](learn_docs/) 目录**。
+- `put <key> <value>`
+- `get <key>`
+- `sget <key>`
+- `optget <key> <index>`
 
-### 推荐阅读路径
+客户端没有内建 `quit` 命令，结束时直接 `Ctrl-C` 即可。
 
-| 路径 | 内容 | 说明 |
-|------|------|------|
-| **入门路径** | learn_docs/00 → 01 → 08 | 项目概述 → 架构 → DB 层 |
-| **存储引擎** | learn_docs/02 → 03 → 04 → 05 | 跳表 → MemTable → SST → Manifest |
-| **分布式系统** | learn_docs/09 | Raft 协议详解 |
-| **大模型应用** | learn_docs/14 | Prompt 缓存、对话历史、RAG 等场景 |
+## 当前能力
 
-完整文档列表见 [learn_docs/README.md](learn_docs/README.md)。
+### 存储引擎
 
-## 特性
+- `mokv/db.hpp`：统一的 KV 接口，负责 MemTable、刷盘线程、Manifest 和 BlockCache 协调
+- `mokv/lsm/skiplist.hpp`：MemTable 底层跳表，当前使用单个 `std::atomic_flag` 自旋锁保护结构
+- `mokv/lsm/sst.hpp`：SST 使用 `mmap` 映射文件，DataBlock 带 BloomFilter，可选压缩
+- `mokv/lsm/manifest.hpp`：Copy-on-Write Manifest，按层管理 SST 并触发 size-tiered compaction
 
-- **高性能写入**: LSM Tree 顺序磁盘写入
-- **强一致性**: Raft 协议保证分布式一致性
-- **并发安全**: 自旋锁保证多线程安全
-- **多级缓存**: 布隆过滤器 + Block Cache 加速查询
-- **压缩存储**: LZ4/Snappy 压缩
-- **异步 I/O**: 基于 io_uring 的高性能写入
-- **LLM 场景访问层**: Prompt Cache / Conversation / Retrieval Metadata / Runtime Config
-- **前缀扫描能力**: 支持按 keyspace 扫描，方便会话历史、配置列表和 RAG chunk 管理
-- **现代化构建**: CMake 构建系统
+### 压缩
 
-## 技术栈
+- 默认压缩配置在 `DBConfig` 中开启
+- `CompressionType` 支持 `kNone` / `kSnappy` / `kLZ4`
+- `LZ4` 走 `liblz4` 的 frame API
+- SST 压缩块使用自描述头，加载时会根据块头自动判断压缩类型和解压方式
 
-| 组件 | 技术 |
-|------|------|
-| 语言 | C++17 |
-| 构建系统 | CMake 3.16+ |
-| 网络通信 | gRPC 1.51 |
-| 存储引擎 | LSM Tree |
-| 分布式协议 | Raft |
-| 并发控制 | std::atomic_flag 自旋锁 |
-| 异步 I/O | io_uring (Linux) |
-| 测试框架 | GoogleTest |
+### LLM 场景访问层
 
-## 大模型应用场景
+`mokv/llm/store.hpp` 当前包含：
 
-mokv 适用于大模型应用的多种场景，详见 [learn_docs/14-llm-applications.md](learn_docs/14-llm-applications.md)：
+- `PromptCacheStore`
+- `ConversationStore`
+- `RetrievalStore`
+- `RuntimeConfigStore`
+- `LLMStore` facade
 
-| 场景 | 用途 |
-|------|------|
-| Prompt Cache | 高频提示词模板缓存，降低 API 调用成本 |
-| 对话历史存储 | 多轮对话历史，Raft 保证多节点一致性 |
-| RAG 元数据 | 文档 ID、向量 ID 映射，向量库配合使用 |
-| API 限流与计数 | 原子性计数，分布式一致性保证 |
-| 模型配置管理 | 多模型 API 动态配置，支持热更新 |
+Conversation 当前支持的是“按 turn 数裁剪”，对应接口是 `TrimConversationToLastTurns(...)`，不是按 token 数裁剪。
 
-## LLM 数据访问层
+### 服务端与 Raft 路径
 
-这次重构后，LLM 场景不再直接依赖裸 `Put/Get` 拼 key，而是通过 [`mokv/llm/store.hpp`](mokv/llm/store.hpp) 中的场景化接口访问：
+- gRPC 服务实现位于 `mokv/raft/service.hpp`
+- server 入口位于 `mokv/server.cpp`
+- `DBClient` 会按 `raft.cfg` 中的地址列表初始化 RPC client
+- `sget` 会尝试走 leader 读
+
+这部分代码目前属于“可运行、可调试”的状态，但仍有几个需要注意的限制：
+
+- `mokv_server -c <file>` 参数已经解析，但当前 `ConfigManager` 仍固定读取 `./raft.cfg`
+- daemon 模式会 `chdir("/")`，而配置加载仍依赖相对路径，因此这一路径还不适合作为现成生产部署方案
+- `UpdateConfig` RPC 目前直接返回 `CANCELLED`
+
+## 嵌入式用法
+
+### 直接使用 KV 抽象
 
 ```cpp
-mokv::DBKVStore store;
-mokv::llm::LLMStore llm_store(store);
+#include "mokv/kvstore.hpp"
 
-llm_store.PutPromptCache(...);
-llm_store.AppendConversationTurn(...);
-llm_store.ListConversationSessions(...);
-llm_store.PutRetrievalChunk(...);
-llm_store.ListRuntimeConfigs(...);
+int main() {
+    mokv::DBKVStore store;
+    store.Put("tenant:app:key", "value");
+
+    auto value = store.Get("tenant:app:key");
+    auto keys = store.ListKeysByPrefix("tenant:");
+    return value.has_value() ? 0 : 1;
+}
 ```
 
-## 架构概览
+### 使用 LLM 场景访问层
 
-```
-┌─────────────────────────────────────────────────────────────┐
-│                     mokv 架构                               │
-├─────────────────────────────────────────────────────────────┤
-│                                                             │
-│   ┌─────────┐       ┌─────────────────────────────┐       │
-│   │ Client  │──────▶│      LLM Access Layer       │       │
-│   └─────────┘       │  ┌───────────────────────┐  │       │
-│                     │  │ Prompt/Chat/RAG API   │  │       │
-│                     │  └───────────────────────┘  │       │
-│                     └─────────────┬───────────────┘       │
-│                                   │                        │
-│                                   ▼                        │
-│   ┌─────────────────────────────────────────────────────┐ │
-│   │                  Raft Replication Layer             │ │
-│   │                 Pod / Service / Client              │ │
-│   └───────────────┬────────────────────────────────────┘ │
-│                   │                                        │
-│                   ▼                                        │
-│   ┌─────────────────────────────────────────────────────┐ │
-│   │                 LSM Tree Storage Engine             │ │
-│   │  ┌──────────┐  ┌──────────┐  ┌──────────────────┐  │ │
-│   │  │ MemTable │→ │  SST     │→ │    Manifest      │  │ │
-│   │  │ (SkipList)│  │ (mmap)   │  │  - 分层管理      │  │ │
-│   │  └──────────┘  └──────────┘  └──────────────────┘  │ │
-│   │                                                      │ │
-│   │  ┌──────────────────────────────────────────────┐  │ │
-│   │  │  性能优化: BlockCache | Compression | IO     │  │ │
-│   │  └──────────────────────────────────────────────┘  │ │
-│   └─────────────────────────────────────────────────────┘ │
-│                                                             │
-└─────────────────────────────────────────────────────────────┘
+```cpp
+#include "mokv/kvstore.hpp"
+#include "mokv/llm/store.hpp"
+
+int main() {
+    mokv::DBKVStore store;
+    mokv::llm::LLMStore llm(store);
+
+    mokv::llm::PromptCacheEntry entry;
+    entry.tenant = "tenant-a";
+    entry.app_id = "agent-gateway";
+    entry.model = "gpt-5.4";
+    entry.prompt_hash = "hash-001";
+    entry.response = "{\"answer\":\"ok\"}";
+    entry.cached_at_ms = 1712345678;
+
+    llm.PutPromptCache(entry);
+    auto loaded = llm.GetPromptCache("tenant-a", "agent-gateway", "gpt-5.4", "hash-001");
+    return loaded.has_value() ? 0 : 1;
+}
 ```
 
-## 项目结构
+## 配置入口
 
-```
-mokv/
-├── mokv/                  # 主代码目录
-│   ├── llm/                   # 大模型场景访问层
-│   │   └── store.hpp          # Prompt/Conversation/RAG/RuntimeConfig
-│   ├── lsm/                   # LSM 树存储引擎
-│   │   ├── skiplist.hpp       # 并发安全跳表
-│   │   ├── memtable.hpp       # 内存表
-│   │   ├── sst.hpp            # SST 磁盘文件
-│   │   ├── manifest.hpp       # Manifest 元数据管理
-│   │   ├── block_cache.hpp    # LRU 块缓存
-│   │   └── compression.hpp    # 压缩
-│   ├── raft/                  # Raft 协议实现
-│   │   ├── pod.hpp            # Raft 节点核心
-│   │   ├── raft_log.hpp       # 日志管理
-│   │   └── service.hpp        # RPC 服务
-│   ├── cache/                 # 缓存模块
-│   ├── utils/                 # 工具类
-│   │   ├── lock.hpp           # 读写锁
-│   │   └── bloom_filter.hpp   # 布隆过滤器
-│   ├── db.hpp                 # 核心 DB
-│   ├── kvstore.hpp            # 对外 KV 抽象，支持前缀扫描
-│   └── server.cpp / client.cpp
-├── learn_docs/                # 学习文档目录（必读）
-├── tests/                     # 测试文件
-├── raft.cfg                   # Raft 集群配置
-├── build.sh                   # 构建脚本
-└── README.md                  # 本文档
-```
+这里有两个配置入口，需要区分：
 
-## 构建与运行
+- 嵌入式 / 库内调用：
+  - `mokv::DBConfig`
+  - `mokv::MokvConfig`
+- 当前服务端进程：
+  - 实际读取的是仓库根目录下的 `raft.cfg`
 
-### 环境要求
+也就是说，`MokvConfig` 目前主要用于 `DBKVStore` 这类库内接口；`mokv_server` 还没有把它接成完整的进程配置入口。
 
-```bash
-# Ubuntu/Debian
-sudo apt install -y build-essential cmake libgrpc++-dev \
-    libprotobuf-dev protobuf-compiler-grpc liburing-dev \
-    libboost-dev googletest
-```
+## 目录结构
 
-### 构建
-
-```bash
-./build.sh
-```
-
-### 运行
-
-```bash
-# 前台运行
-./build/bin/mokv_server
-
-# Daemon 模式
-./build/bin/mokv_server -d
-
-# 客户端
-./build/bin/mokv_client
-```
-
-### 测试
-
-```bash
-cd build
-ctest --output-on-failure
+```text
+.
+├── CMakeLists.txt
+├── README.md
+├── CLAUDE.md
+├── docs/
+│   ├── README.md
+│   ├── getting-started/
+│   ├── design/
+│   ├── storage/
+│   ├── distributed/
+│   ├── llm/
+│   ├── operations/
+│   ├── project/
+│   └── reference/
+├── scripts/
+│   └── install_cpp_env_ubuntu.sh
+├── mokv/
+│   ├── db.hpp
+│   ├── kvstore.hpp
+│   ├── kvstore.cpp
+│   ├── llm/
+│   │   └── store.hpp
+│   ├── lsm/
+│   │   ├── memtable.hpp
+│   │   ├── skiplist.hpp
+│   │   ├── sst.hpp
+│   │   ├── manifest.hpp
+│   │   └── block_cache.hpp
+│   ├── raft/
+│   │   ├── config.hpp
+│   │   ├── pod.hpp
+│   │   ├── raft_log.hpp
+│   │   └── service.hpp
+│   └── utils/
+│       ├── bloom_filter.hpp
+│       ├── codec.hpp
+│       ├── compression.hpp
+│       └── lock.hpp
+└── tests/
 ```
 
 ## 文档索引
 
-| 文档 | 说明 |
-|------|------|
-| [learn_docs/README.md](learn_docs/README.md) | 文档索引和阅读指南 |
-| [learn_docs/00-overview.md](learn_docs/00-overview.md) | 项目概述 |
-| [learn_docs/01-architecture.md](learn_docs/01-architecture.md) | 架构设计 |
-| [learn_docs/02-skiplist.md](learn_docs/02-skiplist.md) | 跳表实现 |
-| [learn_docs/03-memtable.md](learn_docs/03-memtable.md) | MemTable |
-| [learn_docs/04-sst.md](learn_docs/04-sst.md) | SST 文件 |
-| [learn_docs/05-manifest.md](learn_docs/05-manifest.md) | Manifest |
-| [learn_docs/06-bloom-filter.md](learn_docs/06-bloom-filter.md) | 布隆过滤器 |
-| [learn_docs/07-block-cache.md](learn_docs/07-block-cache.md) | 块缓存 |
-| [learn_docs/08-db-layer.md](learn_docs/08-db-layer.md) | DB 层 |
-| [learn_docs/09-raft-protocol.md](learn_docs/09-raft-protocol.md) | Raft 协议 |
-| [learn_docs/14-llm-applications.md](learn_docs/14-llm-applications.md) | 大模型应用场景 |
+- [docs/README.md](docs/README.md)
+- [docs/getting-started/overview.md](docs/getting-started/overview.md)
+- [docs/operations/deployment.md](docs/operations/deployment.md)
+- [docs/operations/testing.md](docs/operations/testing.md)
+- [docs/llm/applications.md](docs/llm/applications.md)
+- [docs/project/agent-memory.md](docs/project/agent-memory.md)
 
-## 许可证
+## 当前已验证的测试项
 
-MIT License
+- `skip_list_test`
+- `db_test`
+- `lock_test`
+- `thread_pool_test`
+- `list_test`
+- `bloom_filter_test`
+- `cache_test`
+- `compaction_test`
+- `cm_sketch_test`
+- `compression_test`
+- `llm_store_test`

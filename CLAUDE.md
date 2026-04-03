@@ -27,8 +27,9 @@ MoKV is a distributed KV store based on Raft + LSM Tree, written in C++17.
 - **Async I/O**: io_uring on Linux
 
 ### Documentation
-- Detailed learning docs in `learn_docs/` directory
-- Start with `learn_docs/README.md` for document index
+- Primary documentation lives in `docs/`
+- Start with `docs/README.md` for the document index
+- Project-specific long-term memory for agents lives in `docs/project/agent-memory.md`
 
 ### Build & Test
 ```bash
